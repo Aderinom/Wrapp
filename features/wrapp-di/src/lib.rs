@@ -1,11 +1,8 @@
 use std::{
-    any::{Any, TypeId},
-    collections::HashMap,
-    convert::Infallible,
-    future::Future,
-    sync::Arc,
+    any::{Any, TypeId}, collections::{HashMap, HashSet}, convert::Infallible, future::Future, pin::pin, sync::Arc
 };
 
+use futures::{stream::FuturesUnordered, FutureExt, StreamExt};
 use futures_channel::{mpsc, oneshot};
 
 type DynError = Box<dyn std::error::Error>;
@@ -64,10 +61,10 @@ trait InstanceFactory {
     /// Constructs a new instance of the factory's provided type, fulfilling all its dependencies
     async fn construct(
         &mut self,
-        di: InjectionHandle,
+        di: &InjectionHandle,
     ) -> Result<Self::Provides, impl Into<DynError>>;
     /// Returns a boolean indicating whether the factory is enabled or not
-    async fn is_enabled(&mut self, di: InjectionHandle) -> Result<bool, impl Into<DynError>> {
+    async fn is_enabled(&mut self, di: &InjectionHandle) -> Result<bool, impl Into<DynError>> {
         di;
         Ok::<_, Infallible>(true)
     }
@@ -81,12 +78,12 @@ trait DynFactory {
     /// Constructs a new instance of the factory's provided type, fulfilling all its dependencies
     fn construct(
         &mut self,
-        di: InjectionHandle,
+        di:  &InjectionHandle,
     ) -> Box<dyn Future<Output = Result<Instance, DynError>>>;
     /// Returns a boolean indicating whether the factory is enabled or not
     fn is_enabled(
         &mut self,
-        di: InjectionHandle,
+        di: &InjectionHandle,
     ) -> Box<dyn Future<Output = Result<bool, DynError>>> {
         di;
         Box::new(async { Ok(true) })
@@ -107,7 +104,7 @@ impl<T: 'static, SpecificFactory: InstanceFactory<Provides = T>> DynFactory for 
 
     fn construct(
         &mut self,
-        di: InjectionHandle,
+        di:  &InjectionHandle,
     ) -> Box<dyn Future<Output = Result<Instance, DynError>>> {
         let future = async {
             // Forward the call to the specific implementation
@@ -122,7 +119,7 @@ impl<T: 'static, SpecificFactory: InstanceFactory<Provides = T>> DynFactory for 
 
     fn is_enabled(
         &mut self,
-        di: InjectionHandle,
+        di:  &InjectionHandle,
     ) -> Box<dyn Future<Output = Result<bool, DynError>>> {
         let future = async {
             // Forward the call to the specific implementation
@@ -135,22 +132,26 @@ impl<T: 'static, SpecificFactory: InstanceFactory<Provides = T>> DynFactory for 
     }
 }
 
-struct ApplicationBuilder {
+struct AppGraph {
+    //TODO: Implement
+}
+
+struct AppBuilder {
     /// Registered factories which can provide instances
     registered_factories: Vec<Box<dyn DynFactory>>,
     /// Registered already created instances
     registered_instances: HashMap<TypeId, Instance>,
 }
-impl ApplicationBuilder {
+impl AppBuilder {
     pub fn new() -> Self {
-        ApplicationBuilder {
+        AppBuilder {
             registered_factories: Vec::new(),
             registered_instances: HashMap::new(),
         }
     }
 }
 
-impl ApplicationBuilder {
+impl AppBuilder {
     pub fn add_instance<T: 'static>(&mut self, instance: T) {
         self.registered_instances
             .insert(TypeId::of::<T>(), Instance::new(instance));
@@ -158,6 +159,12 @@ impl ApplicationBuilder {
 
     pub fn add_factory<Factory: InstanceFactory + 'static>(&mut self, factory: Factory) {
         self.registered_factories.push(Box::new(factory));
+    }
+
+
+    pub async fn build(self) -> Result<App, DiError> {
+        let res = AppInitiator::new().initiate(self).await;
+        Ok(())
     }
 }
 
@@ -169,7 +176,9 @@ trait InjectionHandleStrategy {
 /// DI Handle for resolving dependencies and getting instances from the registry.
 /// The DI Handle is only valid during instanciation of the Application.
 /// Afterwards the DI Container can be used directly for dependency injection.
-struct InjectionHandle;
+struct InjectionHandle {
+    injection_request_sender: mpsc::Sender<InjectionRequests>,
+}
 
 // impl DiHandle {
 //     async fn resolve<T>(&self, type_name: &str) -> Result<Instance, DiHandleError> {
@@ -185,33 +194,206 @@ struct InjectionHandle;
 //     }
 // }
 
-enum InjectonError {
-    Todo,
+#[derive(thiserror::Error, Debug)]
+enum InjectError {
+    #[error("The requested type is not registered.")]
+    RequestedTypeMissing,
+    #[error("The requested type is registered, but is not enabled.")]
+    RequestedTypeDisabled,
+    #[error("The Injection process was aborted due to an error.")]
+    Aborted,
+    #[error(transparent)]
+    DiError(#[from] DiError),
 }
 
-enum InjectionRequests {
-    Require {
-        type_id: TypeId,
-        response_channel: futures_channel::oneshot::Sender<Result<Instance, InjectonError>>,
+#[derive(thiserror::Error, Debug)]
+enum DiError {
+    #[error("Factory for '{type_name}' failed - error: {error:?}")]
+    FactoryFailed{
+        type_name: &'static str,
+        error: DynError,
     },
-    RequireLazy {
-        type_id: TypeId,
-        response_channel: futures_channel::oneshot::Sender<Result<Container, InjectonError>>,
+}
+
+
+
+
+
+type InjectionResponseSender<For> = futures_channel::oneshot::Sender<Result<Arc<For>, InjectError>>;
+type InjectionResponseReceiver<For> = futures_channel::oneshot::Receiver<Result<Arc<For>, InjectError>>;
+
+enum InjectionRequests {
+    // Require an instance of a specific type
+    Require {
+        wants_type_id: TypeId,
+        response_channel: InjectionResponseSender<Instance>,
+    },
+    // Requires a reference to the Application once it has been build
+    RequireApp {
+        response_channel: InjectionResponseSender<App>,
     },
 }
 
 struct AppInitiator {
     injection_request_receiver: mpsc::Receiver<InjectionRequests>,
+    injection_request_sender: mpsc::Sender<InjectionRequests>,
+
+    all_registerd_type_ids: HashSet<TypeId>,
+    ready_instances: HashMap<TypeId, Option<Arc<Instance>>>,
+
+    instance_waiters: HashMap<TypeId, Vec<InjectionResponseSender<Instance>>>,
+    app_waiters: Vec<InjectionResponseSender<App>>,
 }
 
-struct Container {}
+impl AppInitiator {
+    fn new() -> AppInitiator {
+        let (injection_request_sender, injection_request_receiver) = mpsc::channel(10);
+        AppInitiator {
+            injection_request_receiver,
+            injection_request_sender,
+            all_registerd_type_ids: HashSet::new(),
+            ready_instances: HashMap::new(),
+            instance_waiters: HashMap::new(),
+            app_waiters: Vec::new(),
+        }
+    }
+
+    pub async fn initiate(&mut self, blueprint: AppBuilder) -> Result<(), DiError> {
+        let AppBuilder {
+            registered_factories,
+            registered_instances,
+        } = blueprint;
+
+        tracing::debug!("Initializing application with {} factories and {} instances", registered_factories.len(), registered_instances.len());
+        //TODO: Check for circular dependencies
+
+        // Begin instantiation of all factories
+        let mut factory_futures = FuturesUnordered::new();
+        for mut factory in registered_factories {
+            let di = self.get_handle();
+
+            let factory_future = async move {
+                let supply_info = factory.supplies();
+                // Check if the factory is enabled
+                match Box::into_pin(factory.is_enabled(&di)).await? {
+                    true => tracing::debug!("Factory for {} is enabled", supply_info.type_name),
+                    false => {
+                        tracing::debug!("Factory for {} is disabled", supply_info.type_name);
+                        return Ok(None);
+                    },
+                }
+                                
+                // Construct factory
+                let instance = Box::into_pin(factory.construct(&di)).await?;
+
+                tracing::debug!("Constructed instance of {}", instance.type_name);
+                Ok::<_, DynError>(Some(instance))
+            };
+
+            factory_futures.push(factory_future);
+        }
+
+        // Start handling injection requests and wait for all factories to finish
+        // let pin_set = pin!(set);
+        tracing::debug!("Waiting for factories to finish...");
+        loop {
+            futures::select! {
+                request = self.injection_request_receiver.select_next_some() => {
+                    self.handle_injection_request(request);
+                }
+                factory_result = factory_futures.next() => {
+                    match factory_result {
+                        Some(result) => self.handle_task_result(result),
+                        None => break, // If no more tasks are left, exit the loop - all injection requests must now also be handled as nothing is left to be build
+                    }
+                }
+            }
+        }
+        tracing::debug!("All factories have finished - App DI completed");
+        // TODO: Send App instance to all waiting requests
+
+
+        Ok(())
+    }
+
+
+    fn handle_task_result(&mut self, task_result:Result<Option<Instance>, DynError>) -> Result<(), DiError> {
+        let task_result = match task_result {
+            Ok(res)=>res,
+            Err(e) => return Err(DiError::FactoryFailed{
+                error: e,
+                type_name: "Unknown", //TODO
+            }),
+        };
+
+        self.ready_instances.insert(task_result.type_id(), Some(Arc::new(task_result)));
+        
+
+        // Add instance to results
+        // Inform all waiters with a clone of the instance
+
+        Ok(())
+    }
+
+
+    fn get_handle(&self) -> InjectionHandle {
+        InjectionHandle {
+            injection_request_sender: self.injection_request_sender.clone(),
+        }
+    }
+
+}
+
+// Injection Request handlers
+impl AppInitiator {
+
+    fn handle_injection_request(&mut self, request: InjectionRequests) {
+        match request {
+            InjectionRequests::Require { wants_type_id, response_channel } => {
+                self.handle_instance_require(wants_type_id, response_channel);
+            },
+            InjectionRequests::RequireApp { response_channel } => 
+            self.handle_app_require(response_channel),
+        }
+    }
+
+
+
+    fn handle_instance_require(&mut self, type_id: TypeId, response_channel: InjectionResponseSender<Instance>) {
+        // Check if the TypeId is registered
+        if !self.all_registerd_type_ids.contains(&type_id) {
+            tracing::error!("Tried to require an unregistered type: {:?}", type_id);
+            let _ = response_channel.send(Err(InjectError::RequestedTypeMissing));
+            return;
+        }
+
+        // Check if the instance is already in the registry
+        if let Some(instance) = self.ready_instances.get(&type_id) {
+            // If it is, send it immediately - error can be ignored as it just means the receiver was dropped
+            let _ = response_channel.send(Ok(instance.clone()));
+            return;
+        };
+
+        // Otherwise add the request to the waiters list
+        let waiters = self.instance_waiters.entry(type_id).or_default();
+        waiters.push(response_channel);
+    }
+
+
+    fn handle_app_require(&mut self, response_channel: InjectionResponseSender<App>) {
+        self.app_waiters.push(response_channel);
+    }
+
+}
+
+
+
+
+
+struct App {}
 
 //////////////////////////////////////////////////////////////////////
-///
-///
-///
-///
-
+/// 
 struct Test {
     a: String,
 }
@@ -223,7 +405,7 @@ impl InstanceFactory for TestFactory {
         todo!()
     }
 
-    async fn construct(&mut self, di: InjectionHandle) -> Result<Self::Provides, Infallible> {
+    async fn construct(&mut self, di: &InjectionHandle) -> Result<Self::Provides, Infallible> {
         Ok(Test {
             a: "test".to_string(),
         })
@@ -231,8 +413,15 @@ impl InstanceFactory for TestFactory {
 }
 
 fn main() {
-    let mut registry = ApplicationBuilder::new();
+    let mut registry = AppBuilder::new();
     registry.add_factory(TestFactory);
+
 
     println!("{:?}", test_instance);
 }
+
+
+
+
+//ToThink
+// TODO: Probably should have DI be a different thing as APP - let App contain DiContainer
