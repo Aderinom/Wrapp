@@ -9,7 +9,9 @@
 //! AppBuilder calls BUild
 //!
 //! AppGraph queries all factories for their dependencies and creates a graph.
-//! AppGraph checks the graph for circular dependencies, and aborts DI if any are found.
+//! AppGraph checks the graph for circular dependencies, and aborts DI if:
+//! - Any required Dependencies are missing
+//! - Any Circular Dependencies were found
 //!
 //! AppInitiator creates tasks for all factories.
 //! Factories start asking for their dependencies.
@@ -29,22 +31,28 @@ use std::{
     error::{self, Error},
     fmt::Debug,
     future::Future,
+    ops::Deref,
     pin::pin,
-    sync::Arc,
-    task::Context,
+    result,
+    sync::{Arc, Mutex, OnceLock},
+    task::{Context, Poll},
     thread::{self, sleep},
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, SinkExt, StreamExt};
-use futures_channel::{mpsc, oneshot};
+use futures::{stream::FuturesUnordered, FutureExt, SinkExt, StreamExt};
+use futures_channel::{
+    mpsc,
+    oneshot::{self, Canceled},
+};
+use pin_project_lite::pin_project;
 use thiserror::Error;
 
 /// All errors must be clone
 pub trait CloneError: std::error::Error + Clone {}
 impl<T: std::error::Error + Clone> CloneError for T {}
 
-type DynError = Box<dyn std::error::Error>;
+type DynError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Any Type which is Send 'static - used for where bounds
 pub trait StaticSend: Send + 'static {}
@@ -78,8 +86,7 @@ impl Instance {
 }
 
 pub struct DependencyInfo {
-    pub type_name: &'static str,
-    pub type_id: TypeId,
+    pub type_info: TypeInfo,
     pub optional: bool,
     pub lazy: bool,
 }
@@ -263,6 +270,8 @@ pub trait ResolveStrategy {
     async fn resolve(handle: &mut DiHandle) -> Result<Self, InjectError>
     where
         Self: Sized;
+
+    fn dependency_info() -> DependencyInfo;
 }
 
 impl<T: Injectable> ResolveStrategy for Arc<T> {
@@ -286,6 +295,235 @@ impl<T: Injectable> ResolveStrategy for Arc<T> {
 
         Ok(downcasted)
     }
+
+    fn dependency_info() -> DependencyInfo {
+        DependencyInfo {
+            type_info: TypeInfo::of::<T>(),
+            optional: false,
+            lazy: false,
+        }
+    }
+}
+
+impl<Resolvable: ResolveStrategy> ResolveStrategy for Option<Resolvable> {
+    async fn resolve(handle: &mut DiHandle) -> Result<Self, InjectError>
+    where
+        Self: Sized,
+    {
+        match Resolvable::resolve(handle).await {
+            Ok(resolved) => Ok(Some(resolved)),
+            Err(e) => match e {
+                // If the required type is disabled, or not registered Option does not fail
+                InjectError::RequireError(RequireError::TypeDisabled(_))
+                | InjectError::RequireError(RequireError::TypeMissing(_)) => Ok(None),
+                _ => Err(e),
+            },
+        }
+    }
+
+    fn dependency_info() -> DependencyInfo {
+        let original = Resolvable::dependency_info();
+        DependencyInfo {
+            optional: true,
+            ..original
+        }
+    }
+}
+
+/// Lazily resolved dependency
+///
+/// Should only be accessed after the DI process has completed.
+///
+/// # Panics
+///
+/// If accessed before DI process has completed
+///
+/// Note:
+///
+/// This Type by itself has many panic conditions - However if used in the DI context, no panics should happen unless:
+/// - It is accessed during the Injection Phase
+/// - It is accessed after DI has already Failed
+///
+pub struct Lazy<T: Injectable>(Arc<LazyInner<T>>);
+impl<T: Injectable + Debug> Debug for Lazy<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Lazy").field(&self.get()).finish()
+    }
+}
+struct LazyInner<T: Injectable> {
+    once: OnceLock<Result<Arc<T>, InjectError>>,
+    rx: Mutex<DiResponseReceiver<Instance>>,
+}
+impl<T: Injectable> Deref for Lazy<T> {
+    type Target = Arc<T>;
+
+    fn deref(&self) -> &Self::Target {
+        self.get()
+    }
+}
+impl<T: Injectable> ResolveStrategy for Lazy<T> {
+    async fn resolve(handle: &mut DiHandle) -> Result<Self, InjectError>
+    where
+        Self: Sized,
+    {
+        let (tx, rx) = oneshot::channel();
+        handle
+            .request_sender
+            .send(DiRequest::Require {
+                type_info: TypeInfo::of::<T>(),
+                response_channel: tx,
+            })
+            .await
+            .map_err(|_| InjectError::HandleClosed)?;
+
+        // Check if we got an immediate error
+
+        Ok(Lazy(Arc::new(LazyInner {
+            once: OnceLock::new(),
+            rx: Mutex::new(rx),
+        })))
+    }
+
+    fn dependency_info() -> DependencyInfo {
+        DependencyInfo {
+            type_info: TypeInfo::of::<T>(),
+            optional: false,
+            lazy: true,
+        }
+    }
+}
+impl<T: Injectable> Lazy<T> {
+    /// Accesses the Lazy Dependency
+    ///
+    /// # Panics
+    /// - When accessed before the DI Container Init has completed
+    pub fn get(&self) -> &Arc<T> {
+        self.try_get().as_ref().expect("Lazy inject failed")
+    }
+
+    /// Accesses the Lazy Dependency - returning an error on access
+    pub fn try_get(&self) -> &Result<Arc<T>, InjectError> {
+        self.0.once.get_or_init(|| {
+            let recv = self
+                .0
+                .rx
+                .lock()
+                .unwrap()
+                .try_recv()
+                .map_err(|e| InjectError::Other(e.into()))?
+                .ok_or_else(|| {
+                    InjectError::Other("Lazy was accessed before a result was available".into())
+                })?;
+
+            Lazy::downcast_recv(recv)
+        })
+    }
+
+    /// Resolves as soon as the lazy is available
+    pub fn wait_result(&self) -> LazyFuture<T> {
+        LazyFuture { lazy: &self.0 }
+    }
+}
+impl<T: Injectable> Lazy<T> {
+    fn downcast_recv(recv: Result<Instance, RequireError>) -> Result<Arc<T>, InjectError> {
+        match recv {
+            Ok(instance) => instance.downcast().map_err(|e| {
+                RequireError::DowncastFailed {
+                    required_type: type_name::<T>(),
+                    actual_type: e,
+                }
+                .into()
+            }),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
+pin_project! {
+    struct LazyFuture<'a, T:Injectable> {
+        #[pin]
+        lazy: &'a LazyInner<T>,
+    }
+}
+impl<'a, T: Injectable> Future for LazyFuture<'a, T> {
+    type Output = &'a Result<Arc<T>, InjectError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> std::task::Poll<Self::Output> {
+        // Lock receiver, so result is not taken out while we check
+        let mut rx = self.lazy.rx.lock().unwrap();
+
+        // Check if result is ready
+        if let Some(result) = self.lazy.once.get() {
+            return Poll::Ready(result);
+        }
+
+        // Poll recevier
+        match rx.poll_unpin(cx) {
+            Poll::Ready(recv) => {
+                // We have a result, handle it and set once lock
+                let res = match recv {
+                    Ok(instance) => Lazy::<T>::downcast_recv(instance),
+                    Err(e) => Err(e.into()),
+                };
+
+                self.lazy
+                    .once
+                    .set(res)
+                    .map_err(|_| ())
+                    .expect("holding lock on rx - this can't be set");
+
+                Poll::Ready(self.lazy.once.get().expect("just set once - must be set"))
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+pub struct LazyOption<T: Injectable> {
+    lazy: Lazy<T>,
+}
+impl<T: Injectable> ResolveStrategy for LazyOption<T> {
+    async fn resolve(handle: &mut DiHandle) -> Result<Self, InjectError>
+    where
+        Self: Sized,
+    {
+        Ok(LazyOption {
+            lazy: Lazy::<T>::resolve(handle).await?,
+        })
+    }
+
+    fn dependency_info() -> DependencyInfo {
+        DependencyInfo {
+            type_info: TypeInfo::of::<T>(),
+            optional: true,
+            lazy: true,
+        }
+    }
+}
+impl<T: Injectable> LazyOption<T> {
+    /// Accesses the Lazy Dependency - returning an error on access
+    pub fn try_get(&self) -> Result<&Arc<T>, &InjectError> {
+        self.lazy.try_get().as_ref()
+    }
+
+    /// Accesses the Lazy Dependency
+    ///
+    /// # Panics
+    /// - If accessed after DI has failed
+    pub fn get(&self) -> Option<&Arc<T>> {
+        match self.lazy.try_get().as_ref() {
+            Ok(result) => return Some(result),
+            Err(err) => match err {
+                InjectError::RequireError(RequireError::TypeDisabled(_))
+                | InjectError::RequireError(RequireError::TypeMissing(_)) => {
+                    return None;
+                }
+                err => {
+                    panic!("Accessed LazyOption after DI failure: {:?}", err);
+                }
+            },
+        }
+    }
 }
 
 /// DI Handle for resolving dependencies and getting instances from the registry.
@@ -297,7 +535,7 @@ pub struct DiHandle {
 }
 
 impl DiHandle {
-    pub async fn resolve<T: Injectable + ResolveStrategy>(&mut self) -> Result<T, InjectError> {
+    pub async fn resolve<T: ResolveStrategy>(&mut self) -> Result<T, InjectError> {
         T::resolve(self).await
     }
 }
@@ -520,7 +758,7 @@ impl DiInitiator {
     /// Returns true if complete
     fn handle_factory_result(
         &mut self,
-        result: Option<(TypeInfo, Result<Option<Instance>, Box<dyn Error>>)>,
+        result: Option<(TypeInfo, Result<Option<Instance>, DynError>)>,
     ) -> Result<bool, InitError> {
         let (info, result) = match result {
             Some(result) => result,
