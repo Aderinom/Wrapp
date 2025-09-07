@@ -1,28 +1,38 @@
-use std::{convert::Infallible, error::Error, sync::Arc};
+use std::{convert::Infallible, error::Error, fmt::Debug, sync::Arc};
 
 use wrapp_di::{
-    DependencyInfo, DiBuilder, DiHandle, InjectError, InstanceFactory, Lazy, ResolveStrategy,
+    DependencyInfo, DiBuilder, DiHandle, InjectError, InstanceFactory, Lazy, LazyOption,
+    ResolveStrategy,
 };
 
 fn main() {
     let app = DiBuilder::new()
+        .add_instance(124 as i128)
         .add_instance("test".to_string())
         .add_factory(TestFactory);
 
-    let app = futures::executor::block_on(app.build()).unwrap();
+    let app = futures::executor::block_on(app.build());
+    let app = match app {
+        Ok(app) => app,
+        Err(e) => {
+            println!("{}", e);
+            return;
+        }
+    };
 
     println!("{:?}", app);
-    let t = app.require::<Test>().unwrap();
+    let t = app.require::<Test>();
     println!("{:?}", t);
 
-    println!("{:?}", t.c);
+    let a = Arc::new("String".to_owned());
+    let b: &dyn Debug = &a;
 }
 
 #[derive(Debug)]
 struct Test {
     a: Arc<String>,
     b: Lazy<String>,
-    c: Lazy<i128>,
+    c: LazyOption<i128>,
 }
 struct TestFactory;
 impl InstanceFactory for TestFactory {
@@ -30,7 +40,8 @@ impl InstanceFactory for TestFactory {
     fn get_dependencies() -> Vec<DependencyInfo> {
         vec![
             Arc::<String>::dependency_info(),
-            Lazy::<i128>::dependency_info(),
+            Lazy::<String>::dependency_info(),
+            LazyOption::<i128>::dependency_info(),
         ]
     }
 
@@ -40,7 +51,7 @@ impl InstanceFactory for TestFactory {
     ) -> Result<Self::Provides, Box<dyn Error + Send + Sync>> {
         let str = Arc::<String>::resolve(&mut di).await?;
         let str2 = Lazy::<String>::resolve(&mut di).await?;
-        let str3 = Lazy::<i128>::resolve(&mut di).await?;
+        let str3 = LazyOption::<i128>::resolve(&mut di).await?;
         Ok(Test {
             a: str,
             b: str2,

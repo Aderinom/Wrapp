@@ -26,9 +26,10 @@
 
 use std::{
     any::{type_name, Any, TypeId},
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     convert::Infallible,
     error::{self, Error},
+    ffi::os_str::Display,
     fmt::Debug,
     future::Future,
     ops::Deref,
@@ -54,10 +55,6 @@ impl<T: std::error::Error + Clone> CloneError for T {}
 
 type DynError = Box<dyn std::error::Error + Send + Sync>;
 
-/// Any Type which is Send 'static - used for where bounds
-pub trait StaticSend: Send + 'static {}
-impl<T: Send + 'static> StaticSend for T {}
-
 /// WE assume that we are using a multithreaded async runtime
 /// So anything injectable needs to be Send + Sync + 'static
 pub trait Injectable: Send + Sync + 'static {}
@@ -66,13 +63,13 @@ impl<T: Send + Sync + 'static> Injectable for T {}
 /// Instance of a Provider
 #[derive(Clone)]
 pub struct Instance {
-    pub type_name: &'static str,
+    pub info: TypeInfo,
     pub instance: Arc<dyn Any + Send + Sync + 'static>,
 }
 impl Instance {
     fn new<ExistingInstance: Injectable>(instance: ExistingInstance) -> Self {
         Instance {
-            type_name: std::any::type_name::<ExistingInstance>(),
+            info: TypeInfo::of::<ExistingInstance>(),
             instance: Arc::new(instance),
         }
     }
@@ -80,7 +77,7 @@ impl Instance {
     fn downcast<T: Injectable>(&self) -> Result<Arc<T>, &'static str> {
         match Arc::downcast::<T>(self.instance.clone()) {
             Ok(downcasted) => Ok(downcasted),
-            Err(_) => Err(self.type_name),
+            Err(_) => Err(self.info.type_name),
         }
     }
 }
@@ -91,10 +88,15 @@ pub struct DependencyInfo {
     pub lazy: bool,
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct TypeInfo {
     pub type_name: &'static str,
     pub type_id: TypeId,
+}
+impl std::fmt::Display for TypeInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.type_name)
+    }
 }
 impl TypeInfo {
     fn of<T: 'static + ?Sized>() -> TypeInfo {
@@ -136,7 +138,7 @@ pub trait DynFactory {
     fn supplies(&self) -> TypeInfo;
 
     /// Returns a list of dependencies for the factory
-    fn get_dependencies(&self) -> Vec<DependencyInfo>;
+    fn dependencies(&self) -> Vec<DependencyInfo>;
 
     /// Constructs a new instance of the factory's provided type, fulfilling all its dependencies
     fn construct(
@@ -159,7 +161,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
         SpecificFactory::supplies()
     }
 
-    fn get_dependencies(&self) -> Vec<DependencyInfo> {
+    fn dependencies(&self) -> Vec<DependencyInfo> {
         SpecificFactory::get_dependencies()
     }
 
@@ -191,12 +193,6 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
 
         Box::new(future)
     }
-}
-
-/// Graph of the entire application
-/// Used to check circular dependencies and enables visualization of APP
-struct DependencyGraph {
-    //TODO: Implement
 }
 
 ///
@@ -238,6 +234,151 @@ impl DiBuilder {
 
     pub async fn build_timeout(self, timeout: Duration) -> Result<DiContainer, InitError> {
         DiInitiator::new().initiate(self, Some(timeout)).await
+    }
+}
+
+/// Graph of the entire application
+/// Used to check circular dependencies and enables visualization of APP
+pub struct DependencyGraph {
+    map: BTreeMap<TypeId, DependencyGraphEntry>, //TODO: Implement
+}
+struct DependencyGraphEntry {
+    info: TypeInfo,
+    dependencies: Vec<DependencyInfo>,
+}
+
+#[derive(Error, Debug, Clone)]
+pub enum DependencyGraphError {
+    #[error("A Type has been registered twice: '{0}'")]
+    Duplicate(TypeInfo),
+    #[error("'{required_by}' needs '{dependency}' but it is missing")]
+    MissingDependency {
+        dependency: TypeInfo,
+        required_by: TypeInfo,
+    },
+    #[error("A Circular Dependency exists between '{from}' and '{to}' through {chain:?} - Consider using `Lazy`")]
+    CircularDependency {
+        from: TypeInfo,
+        to: TypeInfo,
+        chain: Vec<TypeInfo>,
+    },
+}
+#[derive(Error, Debug, Clone)]
+pub struct DependencyGraphErrors {
+    errors: Vec<DependencyGraphError>,
+}
+impl std::fmt::Display for DependencyGraphErrors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut display = Vec::new();
+        display.push("The dependency graph had one or more errors:".to_string());
+        for error in &self.errors {
+            display.push(format!("- {}", error));
+        }
+        f.write_str(&display.join("\n"))
+    }
+}
+
+impl DependencyGraph {
+    pub fn new(builder: &DiBuilder) -> Result<Self, DependencyGraphError> {
+        let mut graph = Self {
+            map: Default::default(),
+        };
+
+        for instance in builder.registered_instances.values() {
+            graph.add(instance.info, vec![])?;
+        }
+
+        for factory in &builder.registered_factories {
+            graph.add(factory.supplies(), factory.dependencies())?;
+        }
+
+        Ok(graph)
+    }
+
+    pub fn add(
+        &mut self,
+        info: TypeInfo,
+        dependencies: Vec<DependencyInfo>,
+    ) -> Result<(), DependencyGraphError> {
+        if let Some(existing) = self
+            .map
+            .insert(info.type_id, DependencyGraphEntry { info, dependencies })
+        {
+            return Err(DependencyGraphError::Duplicate(existing.info));
+        }
+
+        Ok(())
+    }
+
+    /// Validate the graph
+    ///
+    /// Returns a list of all issues
+    pub fn check(&self) -> Result<(), DependencyGraphErrors> {
+        let mut checked = HashSet::new();
+        let mut errors = Vec::new();
+        for entry in self.map.values() {
+            let mut dependency_chain = Vec::new();
+            check_recurse(
+                self,
+                &mut checked,
+                &mut errors,
+                &mut dependency_chain,
+                entry,
+            );
+        }
+
+        if errors.len() > 0 {
+            return Err(DependencyGraphErrors { errors });
+        }
+
+        return Ok(());
+
+        fn check_recurse(
+            graph: &DependencyGraph,
+            checked: &mut HashSet<TypeId>,
+            errors: &mut Vec<DependencyGraphError>,
+            dependency_chain: &mut Vec<TypeInfo>,
+            entry: &DependencyGraphEntry,
+        ) {
+            // Circular Dependency Check
+            if dependency_chain.contains(&entry.info) {
+                let from = *dependency_chain.first().expect("must have entries");
+                let to = entry.info;
+
+                dependency_chain.push(to); // Add current so chain is complete
+
+                errors.push(DependencyGraphError::CircularDependency {
+                    from,
+                    to,
+                    chain: dependency_chain.clone(),
+                });
+            }
+
+            // Skip other checks if already checked
+            if !checked.insert(entry.info.type_id) {
+                return;
+            };
+
+            for dependency in &entry.dependencies {
+                let Some(next_entry) = graph.map.get(&dependency.type_info.type_id) else {
+                    if !dependency.optional {
+                        errors.push(DependencyGraphError::MissingDependency {
+                            dependency: dependency.type_info,
+                            required_by: entry.info,
+                        });
+                    }
+
+                    continue;
+                };
+
+                if dependency.lazy {
+                    // Don't recurse, this will be checked by itself
+                    continue;
+                }
+
+                check_recurse(graph, checked, errors, dependency_chain, next_entry);
+            }
+        }
     }
 }
 
@@ -482,6 +623,14 @@ impl<'a, T: Injectable> Future for LazyFuture<'a, T> {
 pub struct LazyOption<T: Injectable> {
     lazy: Lazy<T>,
 }
+impl<T: Injectable + Debug> Debug for LazyOption<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.get() {
+            Some(instance) => f.debug_tuple("LazyOption").field(instance).finish(),
+            None => f.debug_tuple("LazyOption").field(&"None").finish(),
+        }
+    }
+}
 impl<T: Injectable> ResolveStrategy for LazyOption<T> {
     async fn resolve(handle: &mut DiHandle) -> Result<Self, InjectError>
     where
@@ -563,6 +712,10 @@ pub enum RequireError {
 /// Errors while Initiating types
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum InitError {
+    /// There are issues with the dependency graph
+    #[error(transparent)]
+    DependencyGraphError(#[from] DependencyGraphErrors),
+
     /// A Factory failed to build
     #[error("Factory for '{product}' failed - error: {error:?}")]
     FactoryFailed {
@@ -632,6 +785,13 @@ impl DiInitiator {
             });
         };
 
+        // Build and check Graph
+        let graph = DependencyGraph::new(&blueprint).map_err(|error| DependencyGraphErrors {
+            errors: vec![error],
+        })?;
+
+        graph.check()?;
+
         // Start initiating all Instances
         if let Err(e) = self.try_initiate(blueprint, timeout_rx).await {
             // On fail - inform all waiters
@@ -652,9 +812,7 @@ impl DiInitiator {
 
         tracing::debug!("All");
 
-        // TODO: Send App instance to all waiting requests
-        let container = DiContainer::new(self.instances);
-
+        let container = DiContainer::new(self.instances, graph);
         for waiter in self.container_waiters {
             let _ = waiter.send(Ok(container.clone()));
         }
@@ -678,7 +836,6 @@ impl DiInitiator {
             registered_factories.len(),
             registered_instances.len()
         );
-        //TODO: Check for circular dependencies
 
         // Add all pre build instances to the results
 
@@ -714,7 +871,7 @@ impl DiInitiator {
                     // Construct factory
                     let instance = Box::into_pin(factory.construct(handle.clone())).await?;
 
-                    tracing::debug!("Constructed instance of {}", instance.type_name);
+                    tracing::debug!("Constructed instance of {}", instance.info.type_name);
                     Ok::<_, DynError>(Some(instance))
                 }
                 .await;
@@ -880,6 +1037,7 @@ impl DiInitiator {
 pub struct DiContainer(pub Arc<DiContainerInner>);
 pub struct DiContainerInner {
     instances: HashMap<TypeId, (TypeInfo, Option<Instance>)>,
+    graph: DependencyGraph,
 }
 impl Debug for DiContainer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -897,8 +1055,11 @@ impl Debug for DiContainer {
 }
 
 impl DiContainer {
-    fn new(instances: HashMap<TypeId, (TypeInfo, Option<Instance>)>) -> Self {
-        Self(Arc::new(DiContainerInner { instances }))
+    fn new(
+        instances: HashMap<TypeId, (TypeInfo, Option<Instance>)>,
+        graph: DependencyGraph,
+    ) -> Self {
+        Self(Arc::new(DiContainerInner { instances, graph }))
     }
 
     /// Attempts to get the requested type
