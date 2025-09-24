@@ -232,11 +232,11 @@ impl<T: Injectable> LazyOption<T> {
     pub fn get(&self) -> Option<&Arc<T>> {
         match self.lazy.try_get() {
             None => None,
-            Some(Ok(result)) => return Some(result),
+            Some(Ok(result)) => Some(result),
             Some(Err(err)) => match err {
                 InjectError::RequireError(RequireError::TypeDisabled(_))
                 | InjectError::RequireError(RequireError::TypeMissing(_)) => {
-                    return None;
+                    None
                 }
                 err => {
                     panic!("Accessed LazyOption after DI failure: {:?}", err);

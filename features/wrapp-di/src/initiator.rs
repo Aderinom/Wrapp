@@ -225,7 +225,7 @@ impl DiInitiator {
             this: &mut DiInitiator,
             info: TypeInfo,
             instance: Option<Instance>,
-        ) -> () {
+        ) {
             let type_id = info.type_id;
             let type_name = info.type_name;
             // Add instance to results

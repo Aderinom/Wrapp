@@ -27,7 +27,7 @@ impl Debug for DiContainer {
             } else {
                 "disabled"
             };
-            map.field(&info.type_name, &val);
+            map.field(info.type_name, &val);
         }
         map.finish()
     }

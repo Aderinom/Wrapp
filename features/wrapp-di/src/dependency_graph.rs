@@ -64,7 +64,7 @@ impl DependencyGraph {
             );
         }
 
-        if errors.len() > 0 {
+        if !errors.is_empty() {
             return Err(DependencyGraphErrors { errors });
         }
 

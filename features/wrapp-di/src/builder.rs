@@ -13,9 +13,8 @@ use crate::{
 /// The DI Consist of three Parts.
 /// 1. The AppBuilder where one registers all factories and instances
 /// 2. Then for initialization
-///
-///
-///
+
+
 
 pub struct DiBuilder {
     /// Registered factories which can provide instances
@@ -23,6 +22,12 @@ pub struct DiBuilder {
     /// Registered already created instances
     pub(crate) registered_instances: HashMap<TypeInfo, Instance>,
 }
+impl Default for DiBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiBuilder {
     pub fn new() -> Self {
         DiBuilder {

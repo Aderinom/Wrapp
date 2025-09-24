@@ -1,4 +1,4 @@
-use std::{convert::Infallible, future::Future, pin::Pin};
+use std::{convert::Infallible, future::Future};
 
 use crate::{
     initiator::DiHandle,
@@ -30,7 +30,7 @@ pub trait InstanceFactory: Send + Sync {
         &mut self,
         di: DiHandle,
     ) -> impl Future<Output = Result<bool, impl Into<DynError>>> + Send + '_ {
-        di; // Ignore unused
+        drop(di); // Ignore unused
         async { Ok::<_, Infallible>(true) }
     }
 }
