@@ -1,0 +1,15 @@
+[~] Wrapp
+  [~] DI
+    [x] Implementation
+    [] Proc Macro
+  
+  [] Config
+    [] Implement Config Provider
+    [] Implement Injector
+
+  [] Strategies
+    [] Figure out how to pass strategies
+    [] Axum-Utoipa or Actix-Utoipa
+
+  [] Routing
+    [] See if we could reuse something existing - maybe Tower?

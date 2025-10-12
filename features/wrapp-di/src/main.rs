@@ -1,13 +1,19 @@
-use std::{convert::Infallible, error::Error, fmt::Debug, sync::Arc};
+use std::{error::Error, fmt::Debug, sync::Arc};
 
 use wrapp_di::{
-    DependencyInfo, DiBuilder, DiHandle, InjectError, InstanceFactory, Lazy, LazyOption,
-    ResolveStrategy,
+    builder::DiBuilder,
+    factories::InstanceFactory,
+    initiator::DiHandle,
+    resolver::{
+        lazy::{Lazy, LazyOption},
+        Resolver,
+    },
+    types::DependencyInfo,
 };
 
 fn main() {
     let app = DiBuilder::new()
-        .add_instance(124 as i128)
+        .add_instance(124_i128)
         .add_instance("test".to_string())
         .add_factory(TestFactory);
 
