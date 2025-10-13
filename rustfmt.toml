@@ -1,0 +1,4 @@
+fn_single_line = false
+fn_args_layout = "Tall"
+where_single_line = false
+max_width = 100
