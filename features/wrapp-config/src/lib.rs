@@ -1,14 +1,9 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+//! Wrapp Config consists of the following components:
+//!
+//! 1. Config - for declairing a struct as a config and handling resolution
+//! 2. Provider - for creating a registry of configs, adding and retrieving configs
+//! 3. Errors - for config errors
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod config;
+pub mod errors;
+pub mod provider;
