@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 futures = "0.3"
 futures-channel = "0.3"
-thiserror = "2"
 tracing = "0.1"
 pin-project-lite = "0.2"
+thiserror.workspace = true

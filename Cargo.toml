@@ -1,3 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["examples/*", "features/*", "strategies/*", "wrapp"]
+
+[workspace.dependencies]
+wrapp-di = { path = "./features/wrapp-di" }
+thiserror = "2.0"
