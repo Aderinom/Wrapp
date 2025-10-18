@@ -4,7 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::errors::ConfigError;
+use wrapp_di::types::TypeInfo;
+
+use crate::errors::{GetConfigError, RegisterConfigError};
 
 /// A provider to register all configs.
 ///
@@ -23,25 +25,25 @@ impl ConfigProvider {
     }
 
     /// Retrieve a config with specified type.
-    pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<Option<Arc<T>>, ConfigError> {
+    pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<Option<Arc<T>>, GetConfigError> {
         let type_id = TypeId::of::<T>();
 
         self.configs
             .get(&type_id)
             .map(|entry| entry.clone().downcast())
             .transpose()
-            .map_err(|_| ConfigError::ConfigMissing(type_id))
+            .map_err(|_| GetConfigError::Missing(TypeInfo::of::<T>()))
     }
 
     /// Add a config to the registry.
     pub fn add_config<T: Send + Sync + 'static>(
         &mut self,
         config: T,
-    ) -> Result<&mut Self, ConfigError> {
+    ) -> Result<&mut Self, RegisterConfigError> {
         let type_id = TypeId::of::<T>();
 
         if self.configs.contains_key(&type_id) {
-            return Err(ConfigError::ConfigAlreadyRegistered(type_id));
+            return Err(RegisterConfigError::AlreadyRegistered(TypeInfo::of::<T>()));
         }
 
         self.configs.insert(type_id, Arc::new(config));

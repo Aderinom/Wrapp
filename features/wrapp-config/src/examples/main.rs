@@ -18,7 +18,7 @@ fn main() {
     let config_provider = match config_provider.add_config(app_config.clone()) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("{e:?}");
             return;
         }
     };
@@ -30,7 +30,7 @@ fn main() {
             return;
         }
         Err(e) => {
-            eprintln!("{e}");
+            eprintln!("{e:?}");
             return;
         }
     };
