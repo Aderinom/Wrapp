@@ -52,17 +52,18 @@ impl ConfigProvider {
         Ok(self)
     }
 
-    /// Can optionally add a config to the registry.
-    ///
-    /// If the config provided is `Some(T)`, it will be the same as calling [`ConfigProvider::add_config`]
-    /// If the config provided is `None`, then the function just returns `Ok(self)` for chaining
-    pub fn maybe_add_config<T: Send + Sync + 'static>(
-        &mut self,
-        config: Option<T>,
-    ) -> Result<&mut Self, ConfigError> {
-        match config {
-            Some(c) => self.add_config(c),
-            None => Ok(self),
-        }
-    }
+    // NOTE: Can be re-enabled if there is demand for it
+    // /// Can optionally add a config to the registry.
+    // ///
+    // /// If the config provided is `Some(T)`, it will be the same as calling [`ConfigProvider::add_config`]
+    // /// If the config provided is `None`, then the function just returns `Ok(self)` for chaining
+    // pub fn maybe_add_config<T: Send + Sync + 'static>(
+    //     &mut self,
+    //     config: Option<T>,
+    // ) -> Result<&mut Self, ConfigError> {
+    //     match config {
+    //         Some(c) => self.add_config(c),
+    //         None => Ok(self),
+    //     }
+    // }
 }
