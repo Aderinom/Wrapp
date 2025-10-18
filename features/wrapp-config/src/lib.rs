@@ -22,7 +22,7 @@
 //!         app_name: "My Awesome App".to_string(),
 //!     };
 //!
-//!     let mut config_provider = ConfigProvider::default();
+//!     let mut config_provider = ConfigProvider::new();
 //!     let config_provider = match config_provider.add_config(app_config.clone()) {
 //!         Ok(p) => p,
 //!         Err(e) => {

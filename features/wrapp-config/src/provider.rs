@@ -15,15 +15,14 @@ pub struct ConfigProvider {
 
 impl ConfigProvider {
     /// Initializes an empty Config Provider
-    pub fn initialize() -> Self {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
         Self {
             configs: HashMap::new(),
         }
     }
 
     /// Retrieve a config with specified type.
-    ///
-    /// If the config type is not available, it will return a [`ConfigError`] runtime error
     pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<Option<Arc<T>>, ConfigError> {
         let type_id = TypeId::of::<T>();
 
@@ -35,9 +34,6 @@ impl ConfigProvider {
     }
 
     /// Add a config to the registry.
-    ///
-    /// If the config type is already registered, it will return a
-    /// [`ConfigError`] runtime error
     pub fn add_config<T: Send + Sync + 'static>(
         &mut self,
         config: T,
