@@ -9,6 +9,40 @@ use wrapp_di::{
 
 use crate::provider::ConfigProvider;
 
+/// A wrapper type to allow for config injections
+///
+/// This provides a simple way to retrieve configs from the config registry,
+/// and inject them on a factory as a dependency
+///
+/// # Example
+/// ```rust
+/// #[derive(Clone)]
+/// pub struct MyModuleConfig {
+///     enabled: bool,
+///     ...
+/// }
+///
+/// fn register_config() {
+///     let config_provider = ConfigProvider::new();
+///     let my_module_config = MyModuleConfig {
+///         enabled: true,
+///         ...
+///     };
+///
+///     config_provider.add_config(my_module_config).unwrap();
+/// }
+///
+///
+/// #[wrapp::module]
+/// pub struct MyModule;
+/// impl MyModule {
+///     #[wrapp::module(condition)]
+///     pub fn enable(config: Config<MyModuleConfig>) -> bool {
+///         config.enabled
+///     }
+/// }
+///
+/// ```
 pub struct Config<T> {
     inner: Arc<T>,
 }
