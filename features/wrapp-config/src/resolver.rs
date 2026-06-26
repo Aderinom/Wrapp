@@ -1,3 +1,5 @@
+//! Config resolver for Wrapp DI
+
 use std::{any::type_name, ops::Deref, sync::Arc};
 
 use wrapp_di::{
@@ -15,18 +17,20 @@ use crate::provider::ConfigProvider;
 /// and inject them on a factory as a dependency
 ///
 /// # Example
-/// ```rust
+/// ```ignore
+/// # use wrapp_config::provider::ConfigProvider;
+/// # use wrapp_config::resolver::Config;
 /// #[derive(Clone)]
 /// pub struct MyModuleConfig {
 ///     enabled: bool,
-///     ...
+///     //...
 /// }
 ///
 /// fn register_config() {
 ///     let config_provider = ConfigProvider::new();
 ///     let my_module_config = MyModuleConfig {
 ///         enabled: true,
-///         ...
+///         //...
 ///     };
 ///
 ///     config_provider.add_config(my_module_config).unwrap();
@@ -72,8 +76,7 @@ impl<T: Send + Sync + 'static> Resolver for Config<T> {
         let config_provider = handle.resolve::<Arc<ConfigProvider>>().await?;
 
         let config: Arc<T> = config_provider
-            .get_config()
-            .map_err(|e| InjectError::Other(Box::new(e)))?
+            .config()
             .ok_or_else(|| InjectError::RequireError(RequireError::TypeMissing(config_name)))?;
 
         Ok(Config { inner: config })

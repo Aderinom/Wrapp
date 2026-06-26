@@ -23,14 +23,10 @@ fn main() {
         }
     };
 
-    let retrieved_config = match config_provider.get_config::<AppConfig>() {
-        Ok(Some(c)) => c,
-        Ok(None) => {
+    let retrieved_config = match config_provider.config::<AppConfig>() {
+        Some(c) => c,
+        None => {
             eprintln!("Could not find config type");
-            return;
-        }
-        Err(e) => {
-            eprintln!("{e:?}");
             return;
         }
     };

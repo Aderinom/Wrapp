@@ -1,3 +1,5 @@
+//! Config provider to register and retrieve configs based on type.
+
 use std::{
     any::{Any, TypeId},
     collections::HashMap,
@@ -6,18 +8,18 @@ use std::{
 
 use wrapp_di::types::TypeInfo;
 
-use crate::errors::{GetConfigError, RegisterConfigError};
+use crate::errors::{RegisterConfigError};
 
 /// A provider to register all configs.
 ///
 /// Configs can be registered and retrieved based on type.
+#[derive(Default)]
 pub struct ConfigProvider {
     configs: HashMap<TypeId, Arc<dyn Any + Send + Sync + 'static>>,
 }
 
 impl ConfigProvider {
     /// Initializes an empty Config Provider
-    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             configs: HashMap::new(),
@@ -25,14 +27,21 @@ impl ConfigProvider {
     }
 
     /// Retrieve a config with specified type.
-    pub fn get_config<T: Send + Sync + 'static>(&self) -> Result<Option<Arc<T>>, GetConfigError> {
+    pub fn config<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         let type_id = TypeId::of::<T>();
 
-        self.configs
-            .get(&type_id)
-            .map(|entry| entry.clone().downcast())
-            .transpose()
-            .map_err(|_| GetConfigError::Missing(TypeInfo::of::<T>()))
+        let config = self.configs
+            .get(&type_id)?;
+
+        match config.clone().downcast::<T>() {
+            Ok(config) => Some(config),
+            Err(_) => {
+                debug_assert!(false, "Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
+                tracing::error!("Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
+                None
+            },
+        }
+
     }
 
     /// Add a config to the registry.
@@ -49,19 +58,4 @@ impl ConfigProvider {
         self.configs.insert(type_id, Arc::new(config));
         Ok(self)
     }
-
-    // NOTE: Can be re-enabled if there is demand for it
-    // /// Can optionally add a config to the registry.
-    // ///
-    // /// If the config provided is `Some(T)`, it will be the same as calling [`ConfigProvider::add_config`]
-    // /// If the config provided is `None`, then the function just returns `Ok(self)` for chaining
-    // pub fn maybe_add_config<T: Send + Sync + 'static>(
-    //     &mut self,
-    //     config: Option<T>,
-    // ) -> Result<&mut Self, ConfigError> {
-    //     match config {
-    //         Some(c) => self.add_config(c),
-    //         None => Ok(self),
-    //     }
-    // }
 }
