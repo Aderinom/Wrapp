@@ -20,6 +20,7 @@ pub struct ConfigProvider {
 
 impl ConfigProvider {
     /// Initializes an empty Config Provider
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             configs: HashMap::new(),
@@ -33,13 +34,10 @@ impl ConfigProvider {
         let config = self.configs
             .get(&type_id)?;
 
-        match config.clone().downcast::<T>() {
-            Ok(config) => Some(config),
-            Err(_) => {
-                debug_assert!(false, "Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
-                tracing::error!("Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
-                None
-            },
+        if let Ok(config) = config.clone().downcast::<T>() { Some(config) } else {
+            debug_assert!(false, "Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
+            tracing::error!("Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
+            None
         }
 
     }

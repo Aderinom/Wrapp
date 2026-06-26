@@ -20,12 +20,16 @@ pub struct Instance {
 
 impl Instance {
     pub(crate) fn new<ExistingInstance: Injectable>(instance: ExistingInstance) -> Self {
-        Instance {
+        Self {
             info: TypeInfo::of::<ExistingInstance>(),
             instance: Arc::new(instance),
         }
     }
 
+    /// Attempts to downcast the instance to the requested type
+    /// 
+    /// ### Errors
+    /// - Returns an error if the instance cannot be downcasted to the requested type
     pub fn downcast<T: Injectable>(&self) -> Result<Arc<T>, &'static str> {
         match Arc::downcast::<T>(self.instance.clone()) {
             Ok(downcasted) => Ok(downcasted),
@@ -56,8 +60,9 @@ impl std::fmt::Display for TypeInfo {
     }
 }
 impl TypeInfo {
-    pub fn of<T: 'static + ?Sized>() -> TypeInfo {
-        TypeInfo {
+    #[must_use] 
+    pub fn of<T: 'static + ?Sized>() -> Self {
+        Self {
             type_name: std::any::type_name::<T>(),
             type_id: TypeId::of::<T>(),
         }

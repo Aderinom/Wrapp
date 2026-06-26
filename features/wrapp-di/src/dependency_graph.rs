@@ -94,7 +94,7 @@ impl DependencyGraph {
             // Skip other checks if already checked
             if !checked.insert(entry.info.type_id) {
                 return;
-            };
+            }
 
             dependency_chain.push(entry.info);
 
@@ -149,7 +149,7 @@ impl std::fmt::Display for DependencyGraphErrors {
         let mut display = Vec::new();
         display.push("The dependency graph had one or more errors:".to_string());
         for error in &self.errors {
-            display.push(format!("- {}", error));
+            display.push(format!("- {error}"));
         }
         f.write_str(&display.join("\n"))
     }

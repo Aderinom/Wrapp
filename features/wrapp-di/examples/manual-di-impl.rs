@@ -29,17 +29,17 @@ fn main() {
     let app = match app {
         Ok(app) => app,
         Err(e) => {
-            println!("{}", e);
+            println!("{e}");
             return;
         }
     };
 
-    println!("{:?}", app);
+    println!("{app:?}");
     let test_instance = app.require::<Test>();
-    println!("{:?}", test_instance);
+    println!("{test_instance:?}");
 }
 
-/// Test struct requiring an Arc<String>, a Lazy<String> and a LazyOption<i128> as dependencies.
+/// Test struct requiring an Arc<String>, a Lazy<String> and a `LazyOption`<i128> as dependencies.
 #[derive(Debug)]
 struct Test {
     a: Arc<String>,
@@ -50,7 +50,7 @@ struct TestFactory;
 impl InstanceFactory for TestFactory {
     type Provides = Test;
 
-    /// Defines the dependencies required by the TestFactory.
+    /// Defines the dependencies required by the `TestFactory`.
     fn dependencies() -> Vec<DependencyInfo> {
         vec![
             Arc::<String>::dependency_info(),

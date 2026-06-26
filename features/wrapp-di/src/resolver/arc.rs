@@ -50,8 +50,8 @@ impl<Resolvable: Resolver> Resolver for Option<Resolvable> {
             Ok(resolved) => Ok(Some(resolved)),
             Err(e) => match e {
                 // If the required type is disabled, or not registered Option does not fail
-                InjectError::RequireError(RequireError::TypeDisabled(_))
-                | InjectError::RequireError(RequireError::TypeMissing(_)) => Ok(None),
+                InjectError::RequireError(RequireError::TypeDisabled(_) |
+RequireError::TypeMissing(_)) => Ok(None),
                 _ => Err(e),
             },
         }

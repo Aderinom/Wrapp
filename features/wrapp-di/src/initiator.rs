@@ -18,7 +18,7 @@ use crate::{
     types::{DynError, Instance, TypeInfo},
 };
 
-/// Initiates the DiContainer
+/// Initiates the `DiContainer`
 pub(crate) struct DiInitiator {
     request_rx: mpsc::Receiver<DiRequest>,
     request_tx: mpsc::Sender<DiRequest>,
@@ -27,16 +27,16 @@ pub(crate) struct DiInitiator {
 
     /// Waiters for instance results
     instance_waiters: HashMap<TypeId, Vec<DiResponseSender<Instance>>>,
-    /// Waiters for the final DiContainer
+    /// Waiters for the final `DiContainer`
     container_waiters: Vec<DiResponseSender<DiContainer>>,
 
     /// All produced instances - None = Type is known but disabled
     instances: HashMap<TypeId, (TypeInfo, Option<Instance>)>,
 }
 impl DiInitiator {
-    pub(crate) fn new() -> DiInitiator {
+    pub(crate) fn new() -> Self {
         let (injection_request_sender, injection_request_receiver) = mpsc::channel(10);
-        DiInitiator {
+        Self {
             request_rx: injection_request_receiver,
             request_tx: injection_request_sender,
             all_registered_type_ids: HashSet::new(),
@@ -59,7 +59,7 @@ impl DiInitiator {
                 sleep(timeout);
                 let _ = timeout_tx.send(());
             });
-        };
+        }
 
         // Build and check Graph
         let graph = DependencyGraph::new(&blueprint).map_err(|error| DependencyGraphErrors {
@@ -73,7 +73,7 @@ impl DiInitiator {
             // On fail - inform all waiters
             let msg = Err(e.clone().into());
             for (_, waiters) in self.instance_waiters {
-                for waiter in waiters.into_iter() {
+                for waiter in waiters {
                     let _ = waiter.send(msg.clone());
                 }
             }
@@ -115,7 +115,7 @@ impl DiInitiator {
 
         // Add all pre build instances to the results
 
-        for (info, instance) in registered_instances.into_iter() {
+        for (info, instance) in registered_instances {
             self.all_registered_type_ids.insert(info.type_id);
             self.instances.insert(info.type_id, (info, Some(instance)));
         }
@@ -134,14 +134,11 @@ impl DiInitiator {
                 let supply_info = factory.supplies();
                 let result = async {
                     // Check if the factory is enabled
-                    match Box::into_pin(factory.is_enabled(handle.clone())).await? {
-                        true => {
-                            tracing::debug!("Factory for {} is enabled", supply_info.type_name)
-                        }
-                        false => {
-                            tracing::debug!("Factory for {} is disabled", supply_info.type_name);
-                            return Ok(None);
-                        }
+                    if Box::into_pin(factory.is_enabled(handle.clone())).await? {
+                        tracing::debug!("Factory for {} is enabled", supply_info.type_name);
+                    } else {
+                        tracing::debug!("Factory for {} is disabled", supply_info.type_name);
+                        return Ok(None);
                     }
 
                     // Construct factory
@@ -193,17 +190,14 @@ impl DiInitiator {
         &mut self,
         result: Option<(TypeInfo, Result<Option<Instance>, DynError>)>,
     ) -> Result<bool, InitError> {
-        let (info, result) = match result {
-            Some(result) => result,
-            None => {
-                // If no more tasks are left, exit the loop
-                // all injection requests must now also be handled as nothing is left to be build
-                debug_assert!(
-                    self.instance_waiters.is_empty(),
-                    "Not all waiters were satisfied"
-                );
-                return Ok(true);
-            }
+        let (info, result) = if let Some(result) = result { result } else {
+            // If no more tasks are left, exit the loop
+            // all injection requests must now also be handled as nothing is left to be build
+            debug_assert!(
+                self.instance_waiters.is_empty(),
+                "Not all waiters were satisfied"
+            );
+            return Ok(true);
         };
 
         match result {
@@ -217,7 +211,7 @@ impl DiInitiator {
                     error: Arc::new(err),
                 });
             }
-        };
+        }
 
         return Ok(false);
 
@@ -248,7 +242,7 @@ impl DiInitiator {
         }
     }
 
-    /// Get a handle to the DiInitiator
+    /// Get a handle to the `DiInitiator`
     ///
     /// The handle is only valid before and during Initiation.
     pub fn get_handle(&self) -> DiHandle {
@@ -305,6 +299,7 @@ impl DiInitiator {
 }
 
 /// DI Handle for resolving dependencies and getting instances from the registry.
+///
 /// The DI Handle is only valid during instantiation of the Application.
 /// Afterwards the DI Container can be used directly for dependency injection.
 #[derive(Clone)]
@@ -320,14 +315,14 @@ impl DiHandle {
 pub type DiResponseSender<For> = oneshot::Sender<Result<For, RequireError>>;
 pub type DiResponseReceiver<For> = oneshot::Receiver<Result<For, RequireError>>;
 
-/// Requests between [DiHandle] and [DiInitiator]
+/// Requests between [`DiHandle`] and [`DiInitiator`]
 pub enum DiRequest {
     /// Requires an instance of a specific type
     Require {
         type_info: TypeInfo,
         response_channel: DiResponseSender<Instance>,
     },
-    /// Requires a reference to the [DiContainer] once it has been build
+    /// Requires a reference to the [`DiContainer`] once it has been build
     RequireApp {
         response_channel: DiResponseSender<DiContainer>,
     },

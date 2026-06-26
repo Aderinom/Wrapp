@@ -23,12 +23,9 @@ fn main() {
         }
     };
 
-    let retrieved_config = match config_provider.config::<AppConfig>() {
-        Some(c) => c,
-        None => {
-            eprintln!("Could not find config type");
-            return;
-        }
+    let retrieved_config = if let Some(c) = config_provider.config::<AppConfig>() { c } else {
+        eprintln!("Could not find config type");
+        return;
     };
 
     assert_eq!(app_config.host, retrieved_config.host);

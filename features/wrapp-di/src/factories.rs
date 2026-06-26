@@ -10,6 +10,7 @@ pub trait InstanceFactory: Send + Sync {
     type Provides: Injectable;
 
     /// Returns the typeinfo about the factory's provided type
+    #[must_use] 
     fn supplies() -> TypeInfo {
         TypeInfo::of::<Self::Provides>()
     }
@@ -73,7 +74,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
             SpecificFactory::construct(self, di)
                 .await
                 .map(Instance::new)
-                .map_err(|e| e.into())
+                .map_err(std::convert::Into::into)
         };
 
         Box::new(construction_fut)
@@ -87,7 +88,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
             // Forward the call to the specific implementation
             SpecificFactory::is_enabled(self, di)
                 .await
-                .map_err(|e| e.into())
+                .map_err(std::convert::Into::into)
         };
 
         Box::new(future)

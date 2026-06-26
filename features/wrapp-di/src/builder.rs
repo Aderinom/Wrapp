@@ -23,8 +23,9 @@ impl Default for DiBuilder {
 }
 
 impl DiBuilder {
+    #[must_use] 
     pub fn new() -> Self {
-        DiBuilder {
+        Self {
             registered_factories: Vec::new(),
             registered_instances: HashMap::new(),
         }

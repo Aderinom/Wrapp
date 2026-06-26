@@ -57,6 +57,7 @@ impl DiContainer {
         }
     }
 
+    #[must_use] 
     pub fn graph(&self) -> &DependencyGraph {
         &self.0.graph
     }
