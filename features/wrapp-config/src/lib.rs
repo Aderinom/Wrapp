@@ -1,14 +1,16 @@
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
+//! Wrapp Config provides a simple config injection mechanism for Wrapp DI.
+//!
+//! ### Overview
+//! 
+//! - [`ConfigProvider`](crate::provider::ConfigProvider) - Registry of configs which can be injected into modules.
+//! - [`Config<ConfigType>`](crate::resolver::Config) - [`Resolver`](wrapp_di::resolver::Resolver) type which allows for config injections in factories.
+//! 
+//! 
+//! # Examples
+//! ```rust
+#![doc = include_str!("../examples/using-config-provider.rs")]
+//! ```
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub mod resolver;
+pub mod errors;
+pub mod provider;
