@@ -131,7 +131,7 @@ impl<T: Injectable> Lazy<T> {
     /// 
     /// Must not be waited on during module construction 
     // Note: Maybe Add a second DI stage (Injection, Pre Start) - where this is allowed
-    pub fn wait_result(&self) -> LazyFuture<T> {
+    pub fn wait_result<'a>(&'a self) -> LazyFuture<'a, T> {
         LazyFuture { lazy: &self.0 }
     }
 }
@@ -151,7 +151,7 @@ impl<T: Injectable> Lazy<T> {
 }
 
 pin_project! {
-    struct LazyFuture<'a, T:Injectable> {
+    pub struct LazyFuture<'a, T:Injectable> {
         #[pin]
         lazy: &'a LazyInner<T>,
     }

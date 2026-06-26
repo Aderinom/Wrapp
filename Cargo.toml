@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["examples/*", "features/*", "strategies/*", "wrapp"]
+exclude = ["examples/prototype"]
+
+package.edition = "2024"
+package.version = "0.0.0"
 
 [workspace.dependencies]
 
@@ -13,3 +17,8 @@ futures-channel = "0.3"
 tracing = "0.1"
 pin-project-lite = "0.2"
 thiserror = "2.0"
+
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }

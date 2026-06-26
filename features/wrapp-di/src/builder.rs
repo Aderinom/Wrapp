@@ -8,12 +8,6 @@ use crate::{
     types::{Injectable, Instance, TypeInfo},
 };
 
-//////////////////////////////////////////////////////////////////////
-///
-/// The DI Consist of three Parts.
-/// 1. The AppBuilder where one registers all factories and instances
-/// 2. Then for initialization
-
 
 
 pub struct DiBuilder {

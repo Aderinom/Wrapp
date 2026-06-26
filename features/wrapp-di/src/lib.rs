@@ -1,8 +1,10 @@
-//! Wrapp DI consists of following components:
+//! Wrapp DI 
+//! 
+//!  Wrapp DI consists of following components:
 //!
 //! 1. DiBuilder - for registering all factories and instances.
 //! 2. DiInitiator - which executes all factories, and handles injection requests during their initialization.
-//! 2.1 Injection Handles - which are valid during the AppInit Phase, and allow a component to request its dependencies.
+//!    2.1. Injection Handles - which are valid during the AppInit Phase, and allow a component to request its dependencies.
 //! 3. DIContainer - which is the final container that holds all created instances.
 //!
 //! General logic:

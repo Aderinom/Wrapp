@@ -284,15 +284,12 @@ impl DiInitiator {
         }
 
         // Check if we already have a result
-        match self.instances.get(&info.type_id) {
-            Some((_, result)) => {
-                let _ = match result {
-                    Some(instance) => response_channel.send(Ok(instance.clone())),
-                    None => response_channel.send(Err(RequireError::TypeDisabled(info.type_name))),
-                };
-                return;
-            }
-            None => {} // No result yet
+        if let Some((_, result)) = self.instances.get(&info.type_id) {
+            let _ = match result {
+                Some(instance) => response_channel.send(Ok(instance.clone())),
+                None => response_channel.send(Err(RequireError::TypeDisabled(info.type_name))),
+            };
+            return;
         }
 
         // Otherwise add the request to the waiters list

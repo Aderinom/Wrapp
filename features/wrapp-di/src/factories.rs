@@ -15,7 +15,7 @@ pub trait InstanceFactory: Send + Sync {
     }
 
     /// Returns a list of dependencies the factory requires to supply it's type
-    fn get_dependencies() -> Vec<DependencyInfo>;
+    fn dependencies() -> Vec<DependencyInfo>;
 
     /// Constructs a new instance of the factory's provided type
     ///
@@ -61,7 +61,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
     }
 
     fn dependencies(&self) -> Vec<DependencyInfo> {
-        SpecificFactory::get_dependencies()
+        SpecificFactory::dependencies()
     }
 
     fn construct(
