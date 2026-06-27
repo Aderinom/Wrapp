@@ -1,2 +1,5 @@
 target
 Cargo.lock
+
+# Vendored rust-all-action bundle for local CI (scripts/ci-local.sh)
+/.tools/

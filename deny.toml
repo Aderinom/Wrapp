@@ -1,0 +1,57 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+
+# Licensing policy for this MIT-licensed project: only permissive,
+# MIT-compatible licenses are allowed. Copyleft licenses are rejected by
+# omission — anything not in `allow` (or granted a scoped exception) fails.
+
+[graph]
+all-features = true
+
+[output]
+feature-depth = 1
+
+[licenses]
+version = 2
+
+# Permissive, MIT-compatible licenses. Anything NOT listed here (or granted an
+# exception below) fails the check.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unlicense",
+  "0BSD",
+  "BSL-1.0",
+  "CC0-1.0",
+]
+
+# Licenses intentionally NOT allowed
+#   Strong copyleft : GPL-2.0, GPL-3.0, AGPL-3.0
+#   Weak  copyleft : LGPL-2.1, LGPL-3.0, MPL-2.0, EPL-1.0/2.0, CDDL-1.0
+
+confidence-threshold = 0.8
+
+# Per-crate license exceptions. Scoped so they apply only to the named crate.
+exceptions = [{ crate = "unicode-ident", allow = ["Unicode-DFS-2016"] }]
+
+# Security advisories (RustSec)
+[advisories]
+version = 2
+ignore = []
+
+# Dependency bans / hygiene
+[bans]
+# Reject crates with multiple versions in the dependency graph
+multiple-versions = "warn"
+# Reject `version = "*"` requirements
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Crate sources
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
