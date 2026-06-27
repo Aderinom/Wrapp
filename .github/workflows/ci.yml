@@ -37,3 +37,4 @@ jobs:
         with:
           # 'all-default' = test, clippy, fmt, doc, shear. 
           run: fmt, clippy, test, doc, shear, deny
+          flow-fmt-toolchain: nightly
