@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 use futures_channel::{mpsc, oneshot};
 
 use crate::{
@@ -62,8 +62,10 @@ impl DiInitiator {
         }
 
         // Build and check Graph
-        let graph = DependencyGraph::new(&blueprint).map_err(|error| DependencyGraphErrors {
-            errors: vec![error],
+        let graph = DependencyGraph::new(&blueprint).map_err(|error| {
+            DependencyGraphErrors {
+                errors: vec![error],
+            }
         })?;
 
         graph.check()?;
@@ -199,7 +201,6 @@ impl DiInitiator {
             );
             return Ok(true);
         };
-        
 
         match result {
             Ok(instance) => {
@@ -309,7 +310,7 @@ pub struct DiHandle {
 }
 impl DiHandle {
     /// Resolves a dependency of type `T` using the DI Handle.
-    /// 
+    ///
     /// # Errors
     /// See [`InjectError`] for possible errors during resolution.
     pub async fn resolve<T: Resolver>(&mut self) -> Result<T, InjectError> {

@@ -23,7 +23,7 @@ fn main() {
         }
     };
 
-    let retrieved_config = if let Some(c) = config_provider.config::<AppConfig>() { c } else {
+    let Some(retrieved_config) = config_provider.config::<AppConfig>() else {
         eprintln!("Could not find config type");
         return;
     };

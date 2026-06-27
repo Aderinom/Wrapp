@@ -1,5 +1,6 @@
 use std::{
-    any::TypeId, collections::{BTreeMap, HashSet}, 
+    any::TypeId,
+    collections::{BTreeMap, HashSet},
 };
 
 use thiserror::Error;
@@ -16,7 +17,7 @@ pub struct DependencyGraph {
 }
 impl DependencyGraph {
     /// Creates a new `DependencyGraph` from the given `DiBuilder`
-    /// 
+    ///
     /// # Errors
     /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn new(builder: &DiBuilder) -> Result<Self, DependencyGraphError> {
@@ -36,7 +37,7 @@ impl DependencyGraph {
     }
 
     /// Adds a new entry to the graph
-    /// 
+    ///
     /// # Errors
     /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn add(
@@ -55,7 +56,7 @@ impl DependencyGraph {
     }
 
     /// Validates the dependency graph and returns a list of errors if any are found.
-    /// 
+    ///
     /// # Errors
     /// See [`DependencyGraphErrors`] for possible errors during graph validation.
     pub fn check(&self) -> Result<(), DependencyGraphErrors> {
@@ -145,7 +146,9 @@ pub enum DependencyGraphError {
         dependency: TypeInfo,
         required_by: TypeInfo,
     },
-    #[error("A Circular Dependency exists between '{from}' and '{to}' through {chain:?} - Consider using `Lazy`")]
+    #[error(
+        "A Circular Dependency exists between '{from}' and '{to}' through {chain:?} - Consider using `Lazy`"
+    )]
     CircularDependency {
         from: TypeInfo,
         to: TypeInfo,

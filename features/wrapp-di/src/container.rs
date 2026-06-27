@@ -1,5 +1,5 @@
 use std::{
-    any::{type_name, TypeId},
+    any::{TypeId, type_name},
     collections::HashMap,
     fmt::Debug,
     sync::Arc,
@@ -42,25 +42,25 @@ impl DiContainer {
     }
 
     /// Attempts to get an instance of type `T` from the DI container.
-    /// 
+    ///
     /// # Errors
     /// See [`RequireError`] for possible errors during resolution.
     pub fn require<T: Injectable>(&self) -> Result<Arc<T>, RequireError> {
         match self.0.instances.get(&TypeId::of::<T>()) {
             Some((_, Some(instance))) => {
-                instance
-                    .downcast()
-                    .map_err(|actual_type| RequireError::DowncastFailed {
+                instance.downcast().map_err(|actual_type| {
+                    RequireError::DowncastFailed {
                         required_type: type_name::<T>(),
                         actual_type,
-                    })
+                    }
+                })
             }
             Some((_, None)) => Err(RequireError::TypeDisabled(type_name::<T>())),
             None => Err(RequireError::TypeMissing(type_name::<T>())),
         }
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn graph(&self) -> &DependencyGraph {
         &self.0.graph
     }

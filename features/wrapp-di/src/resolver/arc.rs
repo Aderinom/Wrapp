@@ -22,12 +22,12 @@ impl<T: Injectable> Resolver for Arc<T> {
             .await?;
 
         let resolved = rx.await??;
-        let downcasted = resolved
-            .downcast::<T>()
-            .map_err(|e| RequireError::DowncastFailed {
+        let downcasted = resolved.downcast::<T>().map_err(|e| {
+            RequireError::DowncastFailed {
                 required_type: type_name::<T>(),
                 actual_type: e,
-            })?;
+            }
+        })?;
 
         Ok(downcasted)
     }
@@ -48,12 +48,15 @@ impl<Resolvable: Resolver> Resolver for Option<Resolvable> {
     {
         match Resolvable::resolve(handle).await {
             Ok(resolved) => Ok(Some(resolved)),
-            Err(e) => match e {
-                // If the required type is disabled, or not registered Option does not fail
-                InjectError::RequireError(RequireError::TypeDisabled(_) |
-RequireError::TypeMissing(_)) => Ok(None),
-                _ => Err(e),
-            },
+            Err(e) => {
+                match e {
+                    // If the required type is disabled, or not registered Option does not fail
+                    InjectError::RequireError(
+                        RequireError::TypeDisabled(_) | RequireError::TypeMissing(_),
+                    ) => Ok(None),
+                    _ => Err(e),
+                }
+            }
         }
     }
 

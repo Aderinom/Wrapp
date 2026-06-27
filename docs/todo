@@ -3,9 +3,9 @@
     [x] Implementation
     [] Proc Macro
   
-  [] Config
-    [] Implement Config Provider
-    [] Implement Injector
+  [x] Config
+    [x] Implement Config Provider
+    [x] Implement Injector
 
   [] Strategies
     [] Figure out how to pass strategies

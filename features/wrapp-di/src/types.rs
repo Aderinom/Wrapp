@@ -27,7 +27,7 @@ impl Instance {
     }
 
     /// Attempts to downcast the instance to the requested type
-    /// 
+    ///
     /// ### Errors
     /// - Returns an error if the instance cannot be downcasted to the requested type
     pub fn downcast<T: Injectable>(&self) -> Result<Arc<T>, &'static str> {
@@ -60,7 +60,7 @@ impl std::fmt::Display for TypeInfo {
     }
 }
 impl TypeInfo {
-    #[must_use] 
+    #[must_use]
     pub fn of<T: 'static + ?Sized>() -> Self {
         Self {
             type_name: std::any::type_name::<T>(),

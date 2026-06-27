@@ -1,5 +1,5 @@
-//! An example of how a manual DI implementation can be done using the Wrapp DI framework. 
-//! 
+//! An example of how a manual DI implementation can be done using the Wrapp DI framework.
+//!
 //! Usually you should use the wrapp-di procmacros to generate the factory for you,
 //! but this example shows how to do it manually to help understanding what happens under the hood.
 #![allow(dead_code)]
@@ -11,8 +11,8 @@ use wrapp_di::{
     factories::InstanceFactory,
     initiator::DiHandle,
     resolver::{
-        lazy::{Lazy, LazyOption},
         Resolver,
+        lazy::{Lazy, LazyOption},
     },
     types::DependencyInfo,
 };
@@ -59,7 +59,8 @@ impl InstanceFactory for TestFactory {
         ]
     }
 
-    /// Constructs a new instance of the Test struct with dependencies injected from the DI container.
+    /// Constructs a new instance of the Test struct with dependencies injected from the DI
+    /// container.
     #[allow(refining_impl_trait)]
     async fn construct(
         &mut self,

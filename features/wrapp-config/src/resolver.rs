@@ -45,7 +45,6 @@ use crate::provider::ConfigProvider;
 ///         config.enabled
 ///     }
 /// }
-///
 /// ```
 pub struct Config<T> {
     inner: Arc<T>,
@@ -58,12 +57,12 @@ impl<T> Deref for Config<T> {
     }
 }
 impl<T> Config<T> {
-    #[must_use] 
+    #[must_use]
     pub fn inner(&self) -> Arc<T> {
         self.inner.clone()
     }
 
-    #[must_use] 
+    #[must_use]
     pub fn into_inner(self) -> Arc<T> {
         self.inner
     }

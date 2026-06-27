@@ -28,10 +28,10 @@ use crate::{
 ///
 /// Note:
 ///
-/// This Type by itself has many panic conditions - However if used in the DI context, no panics should happen unless:
+/// This Type by itself has many panic conditions - However if used in the DI context, no panics
+/// should happen unless:
 /// - It is accessed during the Injection Phase
 /// - It is accessed after DI has already Failed
-///
 pub struct Lazy<T: Injectable>(Arc<LazyInner<T>>);
 impl<T: Injectable + Debug> Debug for Lazy<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -85,7 +85,7 @@ impl<T: Injectable> Lazy<T> {
     ///
     /// # Panics
     /// - When accessed before the DI Container Init has completed
-    #[must_use] 
+    #[must_use]
     pub fn get(&self) -> &Arc<T> {
         self.try_get()
             .expect("Lazy inject accessed before initialized")
@@ -94,14 +94,14 @@ impl<T: Injectable> Lazy<T> {
     }
 
     /// Try to access the lazy dependency
-    /// 
+    ///
     /// ### Panics
     /// - When accessed before the DI Container Init has completed
     pub fn try_get(&self) -> Option<Result<&Arc<T>, &InjectError>> {
         if let Some(result) = self.0.once.get() {
             return Some(result.as_ref());
         }
-        
+
         // Lock receiver, so result is not taken out while we check
         let mut recv = self.0.rx.lock().expect("we don't handle poisoning");
 
@@ -120,22 +120,18 @@ impl<T: Injectable> Lazy<T> {
                     .map_err(|_| ())
                     .expect("holding lock on rx - this can't be set twice");
 
-                    self.0.once.get().map(Result::as_ref)
+                self.0.once.get().map(Result::as_ref)
             }
-            Ok(None) => {
-                None
-            }
-            Err(_) => {
-                Some(Err(&InjectError::HandleClosed))
-            }
+            Ok(None) => None,
+            Err(_) => Some(Err(&InjectError::HandleClosed)),
         }
     }
 
     /// Resolves as soon as the lazy is available
-    /// 
-    /// Must not be waited on during module construction 
+    ///
+    /// Must not be waited on during module construction
     // Note: Maybe Add a second DI stage (Injection, Pre Start) - where this is allowed
-    #[must_use] 
+    #[must_use]
     pub fn wait_result(&self) -> LazyFuture<'_, T> {
         LazyFuture { lazy: &self.0 }
     }
@@ -143,13 +139,15 @@ impl<T: Injectable> Lazy<T> {
 impl<T: Injectable> Lazy<T> {
     fn downcast_recv(recv: Result<Instance, RequireError>) -> Result<Arc<T>, InjectError> {
         match recv {
-            Ok(instance) => instance.downcast().map_err(|e| {
-                RequireError::DowncastFailed {
-                    required_type: type_name::<T>(),
-                    actual_type: e,
-                }
-                .into()
-            }),
+            Ok(instance) => {
+                instance.downcast().map_err(|e| {
+                    RequireError::DowncastFailed {
+                        required_type: type_name::<T>(),
+                        actual_type: e,
+                    }
+                    .into()
+                })
+            }
             Err(e) => Err(e.into()),
         }
     }
@@ -166,7 +164,7 @@ impl<'a, T: Injectable> Future for LazyFuture<'a, T> {
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> std::task::Poll<Self::Output> {
         // Lock receiver, so result is not taken out while we check
-        let mut rx = self.lazy.rx.lock().unwrap();
+        let mut rx = self.lazy.rx.lock().expect("we don't handle poisoning");
 
         // Check if result is ready
         if let Some(result) = self.lazy.once.get() {
@@ -226,7 +224,7 @@ impl<T: Injectable> Resolver for LazyOption<T> {
 }
 impl<T: Injectable> LazyOption<T> {
     /// Accesses the Lazy Dependency - returning an error on access
-    #[must_use] 
+    #[must_use]
     pub fn try_get(&self) -> Option<Result<&Arc<T>, &InjectError>> {
         self.lazy.try_get()
     }
@@ -235,20 +233,21 @@ impl<T: Injectable> LazyOption<T> {
     ///
     /// # Panics
     /// - If accessed after DI has failed
-    #[must_use] 
+    #[must_use]
     pub fn get(&self) -> Option<&Arc<T>> {
         match self.lazy.try_get() {
             None => None,
             Some(Ok(result)) => Some(result),
-            Some(Err(err)) => match err {
-                InjectError::RequireError(RequireError::TypeDisabled(_) |
-RequireError::TypeMissing(_)) => {
-                    None
+            Some(Err(err)) => {
+                match err {
+                    InjectError::RequireError(
+                        RequireError::TypeDisabled(_) | RequireError::TypeMissing(_),
+                    ) => None,
+                    err => {
+                        panic!("Accessed LazyOption after DI failure: {err:?}");
+                    }
                 }
-                err => {
-                    panic!("Accessed LazyOption after DI failure: {err:?}");
-                }
-            },
+            }
         }
     }
 }

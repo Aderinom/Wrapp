@@ -10,7 +10,7 @@ pub trait InstanceFactory: Send {
     type Provides: Injectable;
 
     /// Returns the typeinfo about the factory's provided type
-    #[must_use] 
+    #[must_use]
     fn supplies() -> TypeInfo {
         TypeInfo::of::<Self::Provides>()
     }
@@ -20,7 +20,8 @@ pub trait InstanceFactory: Send {
 
     /// Constructs a new instance of the factory's provided type
     ///
-    /// Returns the constructed instance, or an error if either Dependencies are not satisfied or the Instantiation failed
+    /// Returns the constructed instance, or an error if either Dependencies are not satisfied or
+    /// the Instantiation failed
     fn construct(
         &mut self,
         di: DiHandle,

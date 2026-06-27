@@ -2,7 +2,6 @@
 
 use wrapp_di::types::TypeInfo;
 
-
 /// Errors when trying to register a config
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum RegisterConfigError {
