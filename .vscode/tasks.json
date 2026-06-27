@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "clippy-watch",
+      "type": "shell",
+      "command": "cargo watch -x clippy",
+      "isBackground": true,
+      "problemMatcher": {
+        "base": "$rustc",
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^\\[Running 'cargo clippy'\\]",
+          "endsPattern": "^\\[Finished running\\. Exit status: [0-9]+\\]"
+        }
+      },
+      "presentation": {
+        "reveal": "never",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    }
+  ]
+}

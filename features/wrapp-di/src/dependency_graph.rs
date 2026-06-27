@@ -1,6 +1,5 @@
 use std::{
-    any::TypeId,
-    collections::{BTreeMap, HashSet},
+    any::TypeId, collections::{BTreeMap, HashSet}, 
 };
 
 use thiserror::Error;
@@ -16,9 +15,13 @@ pub struct DependencyGraph {
     map: BTreeMap<TypeId, DependencyGraphEntry>,
 }
 impl DependencyGraph {
+    /// Creates a new `DependencyGraph` from the given `DiBuilder`
+    /// 
+    /// # Errors
+    /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn new(builder: &DiBuilder) -> Result<Self, DependencyGraphError> {
         let mut graph = Self {
-            map: Default::default(),
+            map: BTreeMap::default(),
         };
 
         for instance in builder.registered_instances.values() {
@@ -32,6 +35,10 @@ impl DependencyGraph {
         Ok(graph)
     }
 
+    /// Adds a new entry to the graph
+    /// 
+    /// # Errors
+    /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn add(
         &mut self,
         info: TypeInfo,
@@ -47,9 +54,10 @@ impl DependencyGraph {
         Ok(())
     }
 
-    /// Validate the graph
-    ///
-    /// Returns a list of all issues
+    /// Validates the dependency graph and returns a list of errors if any are found.
+    /// 
+    /// # Errors
+    /// See [`DependencyGraphErrors`] for possible errors during graph validation.
     pub fn check(&self) -> Result<(), DependencyGraphErrors> {
         let mut checked = HashSet::new();
         let mut errors = Vec::new();
@@ -144,6 +152,12 @@ pub enum DependencyGraphError {
         chain: Vec<TypeInfo>,
     },
 }
+
+/// One or more errors in the dependency graph
+#[derive(Error, Debug, Clone)]
+pub struct DependencyGraphErrors {
+    pub errors: Vec<DependencyGraphError>,
+}
 impl std::fmt::Display for DependencyGraphErrors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut display = Vec::new();
@@ -153,9 +167,4 @@ impl std::fmt::Display for DependencyGraphErrors {
         }
         f.write_str(&display.join("\n"))
     }
-}
-
-#[derive(Error, Debug, Clone)]
-pub struct DependencyGraphErrors {
-    pub errors: Vec<DependencyGraphError>,
 }

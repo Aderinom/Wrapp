@@ -41,7 +41,10 @@ impl DiContainer {
         Self(Arc::new(DiContainerInner { instances, graph }))
     }
 
-    /// Attempts to get the requested type
+    /// Attempts to get an instance of type `T` from the DI container.
+    /// 
+    /// # Errors
+    /// See [`RequireError`] for possible errors during resolution.
     pub fn require<T: Injectable>(&self) -> Result<Arc<T>, RequireError> {
         match self.0.instances.get(&TypeId::of::<T>()) {
             Some((_, Some(instance))) => {

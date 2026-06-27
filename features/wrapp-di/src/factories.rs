@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// A Factory providing instances of a given type
-pub trait InstanceFactory: Send + Sync {
+pub trait InstanceFactory: Send {
     type Provides: Injectable;
 
     /// Returns the typeinfo about the factory's provided type
@@ -37,7 +37,7 @@ pub trait InstanceFactory: Send + Sync {
 }
 
 /// Wrapper Trait for factories, providing instances of Any
-pub trait DynFactory {
+pub trait DynFactory: Send {
     fn supplies(&self) -> TypeInfo;
 
     /// Returns a list of dependencies for the factory

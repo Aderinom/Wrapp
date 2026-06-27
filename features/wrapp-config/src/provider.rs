@@ -43,6 +43,9 @@ impl ConfigProvider {
     }
 
     /// Add a config to the registry.
+    /// 
+    /// # Errors
+    /// - Fails if a config of the same type has already been registered.
     pub fn add_config<T: Send + Sync + 'static>(
         &mut self,
         config: T,

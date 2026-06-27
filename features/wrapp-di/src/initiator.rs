@@ -190,8 +190,8 @@ impl DiInitiator {
         &mut self,
         result: Option<(TypeInfo, Result<Option<Instance>, DynError>)>,
     ) -> Result<bool, InitError> {
-        let (info, result) = if let Some(result) = result { result } else {
-            // If no more tasks are left, exit the loop
+        let Some((info, result)) = result else {
+            // A none result means all tasks are complete, we exit the loop
             // all injection requests must now also be handled as nothing is left to be build
             debug_assert!(
                 self.instance_waiters.is_empty(),
@@ -199,6 +199,7 @@ impl DiInitiator {
             );
             return Ok(true);
         };
+        
 
         match result {
             Ok(instance) => {
@@ -307,6 +308,10 @@ pub struct DiHandle {
     pub request_sender: mpsc::Sender<DiRequest>,
 }
 impl DiHandle {
+    /// Resolves a dependency of type `T` using the DI Handle.
+    /// 
+    /// # Errors
+    /// See [`InjectError`] for possible errors during resolution.
     pub async fn resolve<T: Resolver>(&mut self) -> Result<T, InjectError> {
         T::resolve(self).await
     }

@@ -94,6 +94,9 @@ impl<T: Injectable> Lazy<T> {
     }
 
     /// Try to access the lazy dependency
+    /// 
+    /// ### Panics
+    /// - When accessed before the DI Container Init has completed
     pub fn try_get(&self) -> Option<Result<&Arc<T>, &InjectError>> {
         if let Some(result) = self.0.once.get() {
             return Some(result.as_ref());
@@ -170,7 +173,7 @@ impl<'a, T: Injectable> Future for LazyFuture<'a, T> {
             return Poll::Ready(result);
         }
 
-        // Poll recevier
+        // Poll receiver for result
         match rx.poll_unpin(cx) {
             Poll::Ready(recv) => {
                 // We have a result, handle it and set once lock
