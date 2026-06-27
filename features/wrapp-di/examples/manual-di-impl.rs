@@ -4,7 +4,7 @@
 //! but this example shows how to do it manually to help understanding what happens under the hood.
 #![allow(dead_code)]
 
-use std::{error::Error, fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc};
 
 use wrapp_di::{
     builder::DiBuilder,
@@ -80,7 +80,7 @@ impl InstanceFactory for TestFactory {
     ) -> Result<bool, impl Into<wrapp_di::types::DynError>> {
         let enabled = Option::<Arc<TestConfig>>::resolve(&mut di)
             .await?
-            .map_or(false, |config| config.enable);
+            .is_some_and(|config| config.enable);
         Ok::<_, InjectError>(enabled)
     }
 

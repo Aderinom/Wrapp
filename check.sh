@@ -43,7 +43,7 @@ cargo_alias() {
         # doc gets the full documentation argument set
         doc)  REPLY=(doc --workspace --all-features --no-deps --document-private-items "${@:2}") ;;
         # lint is clippy with the workspace-wide settings
-        lint) REPLY=(clippy --all-targets "${@:2}") ;;
+        lint) REPLY=(clippy --all-targets "${@:2}" -- -D warnings) ;;
         # test is a workspace-wide test run
         test) REPLY=(test --all "${@:2}") ;;
         *)    REPLY=("$@") ;;
@@ -144,8 +144,7 @@ fi
 
 # All Fixes 
 if [ "$1" = "fix" ]; then
-    # Kept sequential on purpose: lint --fix and fmt both rewrite the same .rs
-    # files, so running them concurrently would race and corrupt the sources.
+    # Sequentially run all fixable steps, recording pass/fail for the summary.
     run_step "lint --fix"   lint --fix --allow-dirty
     run_step "format"       fmt --all
     run_step "shear --fix"  shear --fix

@@ -1,6 +1,9 @@
 [~] Wrapp
   [~] DI
     [x] Implementation
+      [ ] Rework: Error handling and Lazy 
+          Possibly change it so that instead of returning the error to the requestor, DI just fails, this simplifies error handling
+          Furthermore Lazy should be looked at again, it's akward to use.
     [] Proc Macro
   
   [x] Config

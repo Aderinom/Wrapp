@@ -1,15 +1,12 @@
 use std::{
     any::type_name,
     fmt::Debug,
-    future::Future,
     ops::Deref,
-    sync::{Arc, Mutex, OnceLock},
-    task::{Context, Poll},
+    sync::{Arc, OnceLock},
 };
 
-use futures::{FutureExt, SinkExt};
+use futures::{FutureExt, SinkExt, future::Shared};
 use futures_channel::oneshot;
-use pin_project_lite::pin_project;
 
 use crate::{
     errors::{InjectError, RequireError},
@@ -17,6 +14,12 @@ use crate::{
     resolver::Resolver,
     types::{DependencyInfo, Injectable, Instance, TypeInfo},
 };
+
+/// Shared receiver for a lazily resolved instance.
+///
+/// [`Shared`] lets the single backing oneshot be observed from every clone, handling
+/// the "resolve once, read many" synchronization so we don't have to.
+type SharedInstance = Shared<DiResponseReceiver<Instance>>;
 
 /// Lazily resolved dependency
 ///
@@ -32,15 +35,17 @@ use crate::{
 /// should happen unless:
 /// - It is accessed during the Injection Phase
 /// - It is accessed after DI has already Failed
-pub struct Lazy<T: Injectable>(Arc<LazyInner<T>>);
+pub struct Lazy<T: Injectable> {
+    /// Shared source future, resolved once the instance becomes available.
+    source: SharedInstance,
+    /// Caches the downcast result so [`get`](Self::get) can hand out a stable reference.
+    resolved: OnceLock<Result<Arc<T>, InjectError>>,
+}
 impl<T: Injectable + Debug> Debug for Lazy<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Lazy").field(&self.get()).finish()
+        // Use `try_get` so debugging an unresolved `Lazy` does not panic.
+        f.debug_tuple("Lazy").field(&self.try_get()).finish()
     }
-}
-struct LazyInner<T: Injectable> {
-    once: OnceLock<Result<Arc<T>, InjectError>>,
-    rx: Mutex<DiResponseReceiver<Instance>>,
 }
 impl<T: Injectable> Deref for Lazy<T> {
     type Target = Arc<T>;
@@ -55,6 +60,12 @@ impl<T: Injectable> Resolver for Lazy<T> {
         Self: Sized,
     {
         let (tx, rx) = oneshot::channel();
+
+        tracing::trace!(
+            "Lazy dependency {} requested - will be resolved when available",
+            type_name::<T>()
+        );
+
         handle
             .request_sender
             .send(DiRequest::Require {
@@ -64,12 +75,11 @@ impl<T: Injectable> Resolver for Lazy<T> {
             .await
             .map_err(|_| InjectError::HandleClosed)?;
 
-        // Check if we got an immediate error
-
-        Ok(Self(Arc::new(LazyInner {
-            once: OnceLock::new(),
-            rx: Mutex::new(rx),
-        })))
+        // We queue the request, but don't wait for the result here.
+        Ok(Self {
+            source: rx.shared(),
+            resolved: OnceLock::new(),
+        })
     }
 
     fn dependency_info() -> DependencyInfo {
@@ -80,116 +90,67 @@ impl<T: Injectable> Resolver for Lazy<T> {
         }
     }
 }
+
 impl<T: Injectable> Lazy<T> {
-    /// Accesses the Lazy Dependency
+    /// Accesses the lazy dependency.
     ///
     /// # Panics
-    /// - When accessed before the DI Container Init has completed
+    /// - When accessed before the DI container init has completed.
+    /// - When accessed after DI has already failed.
     #[must_use]
     pub fn get(&self) -> &Arc<T> {
         self.try_get()
             .expect("Lazy inject accessed before initialized")
-            .as_ref()
-            .expect("Lazy inject accessed after DI failed")
+            .expect("Lazy inject result contained an error - this should not happen if accessed after DI has completed")
     }
 
-    /// Try to access the lazy dependency
+    /// Tries to access the lazy dependency without blocking.
     ///
-    /// ### Panics
-    /// - When accessed before the DI Container Init has completed
+    /// Returns `None` while the dependency has not been resolved yet.
     pub fn try_get(&self) -> Option<Result<&Arc<T>, &InjectError>> {
-        if let Some(result) = self.0.once.get() {
-            return Some(result.as_ref());
+        if self.resolved.get().is_none() {
+            // Drive the shared future once with a no-op waker. This yields `None`
+            // while the backing oneshot has not produced a value yet.
+            let output = self.source.clone().now_or_never()?;
+            // First writer wins; concurrent callers just observe the same result.
+            let _ = self.resolved.set(Self::downcast(output));
         }
 
-        // Lock receiver, so result is not taken out while we check
-        let mut recv = self.0.rx.lock().expect("we don't handle poisoning");
-
-        // Double check once - it might have been set while we waited for the lock
-        if let Some(result) = self.0.once.get() {
-            return Some(result.as_ref());
-        }
-
-        // Otherwise, try to receive result, and set once
-        match recv.try_recv() {
-            Ok(Some(rx)) => {
-                let res = Self::downcast_recv(rx);
-                self.0
-                    .once
-                    .set(res)
-                    .map_err(|_| ())
-                    .expect("holding lock on rx - this can't be set twice");
-
-                self.0.once.get().map(Result::as_ref)
-            }
-            Ok(None) => None,
-            Err(_) => Some(Err(&InjectError::HandleClosed)),
-        }
+        self.resolved.get().map(Result::as_ref)
     }
 
-    /// Resolves as soon as the lazy is available
+    /// Resolves as soon as the lazy dependency is available.
     ///
-    /// Must not be waited on during module construction
-    // Note: Maybe Add a second DI stage (Injection, Pre Start) - where this is allowed
-    #[must_use]
-    pub fn wait_result(&self) -> LazyFuture<'_, T> {
-        LazyFuture { lazy: &self.0 }
+    /// Must not be awaited during module construction - the dependency may not be
+    /// constructed yet at that point.
+    ///
+    /// # Errors
+    ///
+    /// See [`InjectError`] for possible errors during resolution.
+    ///
+    /// # Panics
+    /// - When accessed after DI has already failed.
+    /// - When accessed before the DI container init has completed.
+    // Note: Maybe add a second DI stage (Injection, Pre-Start) - where this is allowed.
+    pub async fn wait(&self) -> Result<&Arc<T>, &InjectError> {
+        // Await the shared future so a real waker is registered.
+        let _ = self.source.clone().await;
+        self.try_get()
+            .expect("source resolved - try_get must return a value")
     }
-}
-impl<T: Injectable> Lazy<T> {
-    fn downcast_recv(recv: Result<Instance, RequireError>) -> Result<Arc<T>, InjectError> {
-        match recv {
-            Ok(instance) => {
-                instance.downcast().map_err(|e| {
-                    RequireError::DowncastFailed {
-                        required_type: type_name::<T>(),
-                        actual_type: e,
-                    }
-                    .into()
-                })
+
+    /// Downcasts the resolved instance into the requested type.
+    fn downcast(
+        output: Result<Result<Instance, RequireError>, oneshot::Canceled>,
+    ) -> Result<Arc<T>, InjectError> {
+        let instance = output.map_err(|_| InjectError::HandleClosed)??;
+        instance.downcast::<T>().map_err(|actual_type| {
+            RequireError::DowncastFailed {
+                required_type: type_name::<T>(),
+                actual_type,
             }
-            Err(e) => Err(e.into()),
-        }
-    }
-}
-
-pin_project! {
-    pub struct LazyFuture<'a, T:Injectable> {
-        #[pin]
-        lazy: &'a LazyInner<T>,
-    }
-}
-impl<'a, T: Injectable> Future for LazyFuture<'a, T> {
-    type Output = &'a Result<Arc<T>, InjectError>;
-
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> std::task::Poll<Self::Output> {
-        // Lock receiver, so result is not taken out while we check
-        let mut rx = self.lazy.rx.lock().expect("we don't handle poisoning");
-
-        // Check if result is ready
-        if let Some(result) = self.lazy.once.get() {
-            return Poll::Ready(result);
-        }
-
-        // Poll receiver for result
-        match rx.poll_unpin(cx) {
-            Poll::Ready(recv) => {
-                // We have a result, handle it and set once lock
-                let res = match recv {
-                    Ok(instance) => Lazy::<T>::downcast_recv(instance),
-                    Err(e) => Err(e.into()),
-                };
-
-                self.lazy
-                    .once
-                    .set(res)
-                    .map_err(|_| ())
-                    .expect("holding lock on rx - this can't be set");
-
-                Poll::Ready(self.lazy.once.get().expect("just set once - must be set"))
-            }
-            Poll::Pending => Poll::Pending,
-        }
+            .into()
+        })
     }
 }
 
@@ -223,12 +184,6 @@ impl<T: Injectable> Resolver for LazyOption<T> {
     }
 }
 impl<T: Injectable> LazyOption<T> {
-    /// Accesses the Lazy Dependency - returning an error on access
-    #[must_use]
-    pub fn try_get(&self) -> Option<Result<&Arc<T>, &InjectError>> {
-        self.lazy.try_get()
-    }
-
     /// Accesses the Lazy Dependency
     ///
     /// # Panics

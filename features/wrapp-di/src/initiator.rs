@@ -95,7 +95,7 @@ impl DiInitiator {
         );
         #[cfg(debug_assertions)]
         {
-            for (type_id, (info, instance)) in &self.instances {
+            for (info, instance) in self.instances.values() {
                 let status = if instance.is_some() {
                     ""
                 } else {
@@ -206,6 +206,32 @@ impl DiInitiator {
             }
         }
 
+        // Close the request channel and handle any remaining requests
+        self.request_rx.close();
+        loop {
+            tracing::trace!(
+                "Polling remaining injection requests [{} waiters, {} container waiters]",
+                self.instance_waiters.len(),
+                self.container_waiters.len(),
+            );
+            futures::select! {
+                request = self.request_rx.next() => {
+                    let Some(request) = request else {
+                        break;
+                    };
+                    self.handle_injection_request(request);
+
+                    assert!(self.instance_waiters.is_empty(),
+                        "Not all instance waiters were satisfied after all factories finished: {} waiters remain - this is a bug in the DI system",
+                        self.instance_waiters.len()
+                    );
+                }
+                _ = timeout => {
+                    return Err(InitError::Timeout)
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -219,10 +245,6 @@ impl DiInitiator {
         let Some((info, result)) = result else {
             // A none result means all tasks are complete, we exit the loop
             // all injection requests must now also be handled as nothing is left to be build
-            debug_assert!(
-                self.instance_waiters.is_empty(),
-                "Not all waiters were satisfied"
-            );
             return Ok(true);
         };
 
@@ -316,7 +338,7 @@ impl DiInitiator {
                 None => Err(RequireError::TypeDisabled(info.type_name)),
             };
 
-            // Ignore error, receiver is just dropped
+            // Ignore error, as the receiver may have been dropped
             let _ = response_channel.send(response);
             return;
         }
@@ -373,10 +395,10 @@ pub enum DiRequest {
 impl Display for DiRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DiRequest::Require { type_info, .. } => {
+            Self::Require { type_info, .. } => {
                 write!(f, "Require({})", type_info.type_name)
             }
-            DiRequest::RequireApp { .. } => {
+            Self::RequireApp { .. } => {
                 write!(f, "RequireApp")
             }
         }

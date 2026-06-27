@@ -321,7 +321,6 @@ version = "0.0.0"
 dependencies = [
  "futures",
  "futures-channel",
- "pin-project-lite",
  "thiserror",
  "tracing",
  "tracing-subscriber",
