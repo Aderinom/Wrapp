@@ -8,6 +8,7 @@ use std::{error::Error, fmt::Debug, sync::Arc};
 
 use wrapp_di::{
     builder::DiBuilder,
+    errors::InjectError,
     factories::InstanceFactory,
     initiator::DiHandle,
     resolver::{
@@ -17,9 +18,18 @@ use wrapp_di::{
     types::DependencyInfo,
 };
 
+struct TestConfig {
+    enable: bool,
+}
+
 fn main() {
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
+
     // Create a new DI builder and register instances and factories
     let app = DiBuilder::new()
+        .add_instance(TestConfig { enable: true })
         .add_instance(124_i128)
         .add_instance("test".to_string())
         .add_factory(TestFactory);
@@ -59,20 +69,34 @@ impl InstanceFactory for TestFactory {
         ]
     }
 
+    /// Determines if the `TestFactory` is enabled based on the `TestConfig` instance in the DI
+    /// container.
+    ///
+    /// This is run before the `construct` method and allows for conditional instantiation of the
+    /// `Test` struct.
+    async fn is_enabled(
+        &mut self,
+        mut di: DiHandle,
+    ) -> Result<bool, impl Into<wrapp_di::types::DynError>> {
+        let enabled = Option::<Arc<TestConfig>>::resolve(&mut di)
+            .await?
+            .map_or(false, |config| config.enable);
+        Ok::<_, InjectError>(enabled)
+    }
+
     /// Constructs a new instance of the Test struct with dependencies injected from the DI
     /// container.
-    #[allow(refining_impl_trait)]
     async fn construct(
         &mut self,
         mut di: DiHandle,
-    ) -> Result<Self::Provides, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Self::Provides, impl Into<wrapp_di::types::DynError>> {
         // Resolve the dependencies from the DI container
         let str = Arc::<String>::resolve(&mut di).await?;
         let str2 = Lazy::<String>::resolve(&mut di).await?;
         let str3 = LazyOption::<i128>::resolve(&mut di).await?;
 
         // Return a new instance of Test with the resolved dependencies
-        Ok(Test {
+        Ok::<_, InjectError>(Test {
             a: str,
             b: str2,
             c: str3,

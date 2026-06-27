@@ -30,7 +30,7 @@ impl DiBuilder {
     }
 }
 impl DiBuilder {
-    /// Adds a instance of a type to the DI container.
+    /// Adds an instance of a type to the DI container.
     ///
     /// An instance is a concrete object that has already been created and is ready to be used.
     /// These instances are stored in the DI container and can be retrieved by their type during

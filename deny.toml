@@ -1,7 +1,6 @@
 # cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
 
-# Licensing policy for this MIT-licensed project: only permissive,
-# MIT-compatible licenses are allowed. Copyleft licenses are rejected.
+# We are licensed under MIT/Apache-2.0. Explicitly deny any copyleft licenses
 
 [graph]
 all-features = true

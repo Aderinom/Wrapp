@@ -1,6 +1,7 @@
 use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
+    fmt::Display,
     sync::Arc,
     thread::{self, sleep},
     time::Duration,
@@ -88,7 +89,30 @@ impl DiInitiator {
             return Err(e);
         }
 
-        tracing::debug!("All");
+        tracing::debug!(
+            "All factories finished, all injection requests handled, final instance count: {}",
+            self.instances.len()
+        );
+        #[cfg(debug_assertions)]
+        {
+            for (type_id, (info, instance)) in &self.instances {
+                let status = if instance.is_some() {
+                    ""
+                } else {
+                    "[disabled] "
+                };
+                tracing::debug!(" - {}{}", status, info.type_name,);
+            }
+        }
+
+        debug_assert!(
+            self.instance_waiters.is_empty(),
+            "Not all instance waiters were satisfied"
+        );
+        debug_assert!(
+            self.container_waiters.is_empty(),
+            "Not all container waiters were satisfied"
+        );
 
         let container = DiContainer::new(self.instances, graph);
         for waiter in self.container_waiters {
@@ -146,7 +170,6 @@ impl DiInitiator {
                     // Construct factory
                     let instance = Box::into_pin(factory.construct(handle.clone())).await?;
 
-                    tracing::debug!("Constructed instance of {}", instance.info.type_name);
                     Ok::<_, DynError>(Some(instance))
                 }
                 .await;
@@ -158,13 +181,14 @@ impl DiInitiator {
         }
 
         // Start handling injection requests and wait for all factories to finish
-        // let pin_set = pin!(set);
         let factory_count = factory_futures.len();
 
         loop {
             let factories_left = factory_futures.len();
-            tracing::debug!(
-                "Waiting for factories to finish [{factories_left} of {factory_count} complete]"
+            let waiters = self.instance_waiters.len();
+            let container_waiters = self.container_waiters.len();
+            tracing::trace!(
+                "Polling initiation [{factories_left} of {factory_count} in progress,  waiters: {waiters}, container waiters: {container_waiters}]"
             );
 
             futures::select! {
@@ -201,6 +225,8 @@ impl DiInitiator {
             );
             return Ok(true);
         };
+
+        tracing::debug!("Factory for {} finished", info.type_name);
 
         match result {
             Ok(instance) => {
@@ -239,6 +265,7 @@ impl DiInitiator {
                 .into_iter()
                 .flat_map(Vec::into_iter)
             {
+                tracing::trace!("Informing waiter for {} with result", type_name);
                 let _ = waiter.send(message.clone());
             }
         }
@@ -256,6 +283,8 @@ impl DiInitiator {
 // Injection Request handlers
 impl DiInitiator {
     fn handle_injection_request(&mut self, request: DiRequest) {
+        tracing::trace!("Got injection request: {}", request);
+
         match request {
             DiRequest::Require {
                 type_info,
@@ -281,13 +310,21 @@ impl DiInitiator {
 
         // Check if we already have a result
         if let Some((_, result)) = self.instances.get(&info.type_id) {
-            let _ = match result {
-                Some(instance) => response_channel.send(Ok(instance.clone())),
-                None => response_channel.send(Err(RequireError::TypeDisabled(info.type_name))),
+            tracing::trace!("Found result for {} - sending to waiter", info.type_name);
+            let response = match result {
+                Some(instance) => Ok(instance.clone()),
+                None => Err(RequireError::TypeDisabled(info.type_name)),
             };
+
+            // Ignore error, receiver is just dropped
+            let _ = response_channel.send(response);
             return;
         }
 
+        tracing::trace!(
+            "No result found for {} - adding to waiters list",
+            info.type_name
+        );
         // Otherwise add the request to the waiters list
         self.instance_waiters
             .entry(info.type_id)
@@ -328,8 +365,20 @@ pub enum DiRequest {
         type_info: TypeInfo,
         response_channel: DiResponseSender<Instance>,
     },
-    /// Requires a reference to the [`DiContainer`] once it has been build
+    /// Requires a reference to the [`DiContainer`] once it has been built
     RequireApp {
         response_channel: DiResponseSender<DiContainer>,
     },
+}
+impl Display for DiRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DiRequest::Require { type_info, .. } => {
+                write!(f, "Require({})", type_info.type_name)
+            }
+            DiRequest::RequireApp { .. } => {
+                write!(f, "RequireApp")
+            }
+        }
+    }
 }
