@@ -1,7 +1,7 @@
 
 # Wrapp
 
-**Create composeable Rust Applications, cleanly seperating business logic from infrastructure concerns.**
+**Create composable Rust Applications, cleanly separating business logic from infrastructure concerns.**
 
 > ⚠️ **Work in progress / experimental.** Wrapp is in early development (`v0.0.0`). The API is incomplete, unstable, and changes frequently. It is **not** ready for production use. Expect things to break.
 
@@ -39,7 +39,7 @@ graph LR;
 ```
 
 For the full design rationale see [`docs/idea.md`](docs/idea.md).
-For a work in progess API sketch see [`examples/prototype`](examples/prototype).
+For a work in progress API sketch see [`examples/prototype`](examples/prototype).
 
 ### Non Goals
 

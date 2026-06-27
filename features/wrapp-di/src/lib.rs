@@ -36,7 +36,7 @@
 //! [`DiContainer`]: container::DiContainer
 //! [`DependencyGraph`]: dependency_graph::DependencyGraph
 //! [`Resolver`]: resolver::Resolver
-//! [`FuturesUnordered``]: futures::stream::FuturesUnordered
+//! [`FuturesUnordered`]: futures::stream::FuturesUnordered
 
 pub mod builder;
 pub mod container;
