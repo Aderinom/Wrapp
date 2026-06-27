@@ -380,7 +380,7 @@ impl DiHandle {
 pub type DiResponseSender<For> = oneshot::Sender<Result<For, RequireError>>;
 pub type DiResponseReceiver<For> = oneshot::Receiver<Result<For, RequireError>>;
 
-/// Requests between [`DiHandle`] and [`DiInitiator`]
+/// Requests between [`DiHandle`] and `DiInitiator`
 pub enum DiRequest {
     /// Requires an instance of a specific type
     Require {

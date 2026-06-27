@@ -18,13 +18,13 @@
 //! ### Internal Flow
 //!
 //! - All dependencies are registered in the [`DiBuilder`] either as instances or factories.
-//! - When [`DiBuilder::build`] is called, the [`DiInitiator`] is created.
-//! - The [`DiInitiator`] creates a [`DependencyGraph`] from the registered dependencies, checking
+//! - When [`DiBuilder::build`] is called, the `DiInitiator` is created.
+//! - The `DiInitiator` creates a [`DependencyGraph`] from the registered dependencies, checking
 //!   for circular dependencies and other issues.
 //! - Afterwards all [`InstanceFactory`] are called and executed in a [`FuturesUnordered`], first to
 //!   check if they are enabled, and then to create their instances.
 //! - Results from the [`InstanceFactory`] are stored and become available through a handle to the
-//!   [`DiInitiator`].
+//!   `DiInitiator`.
 //! - After all factories have been called, all results are collected and stored in the
 //!   [`DiContainer`], which is then returned to the application.
 //!
@@ -32,7 +32,6 @@
 //! [`InstanceFactory`]: factories::InstanceFactory
 //! [`DiBuilder`]: builder::DiBuilder
 //! [`DiBuilder::build`]: builder::DiBuilder::build
-//! [`DiInitiator`]: initiator::DiInitiator
 //! [`DiContainer`]: container::DiContainer
 //! [`DependencyGraph`]: dependency_graph::DependencyGraph
 //! [`Resolver`]: resolver::Resolver

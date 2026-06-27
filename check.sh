@@ -86,7 +86,8 @@ launch_step() {
     local cmd=("${REPLY[@]}")
     (
         s=$(date +%s)
-        cargo "${cmd[@]}" > "${LOGS[idx]}" 2>&1
+				
+        RUSTDOCFLAGS="-D warnings" cargo "${cmd[@]}" > "${LOGS[idx]}" 2>&1
         rc=$?
         printf '%s' "$(( $(date +%s) - s ))" > "${DURS[idx]}"
         exit "$rc"
