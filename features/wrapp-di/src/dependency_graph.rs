@@ -16,9 +16,13 @@ pub struct DependencyGraph {
     map: BTreeMap<TypeId, DependencyGraphEntry>,
 }
 impl DependencyGraph {
+    /// Creates a new `DependencyGraph` from the given `DiBuilder`
+    ///
+    /// # Errors
+    /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn new(builder: &DiBuilder) -> Result<Self, DependencyGraphError> {
         let mut graph = Self {
-            map: Default::default(),
+            map: BTreeMap::default(),
         };
 
         for instance in builder.registered_instances.values() {
@@ -32,6 +36,10 @@ impl DependencyGraph {
         Ok(graph)
     }
 
+    /// Adds a new entry to the graph
+    ///
+    /// # Errors
+    /// See [`DependencyGraphError`] for possible errors during graph creation.
     pub fn add(
         &mut self,
         info: TypeInfo,
@@ -47,9 +55,10 @@ impl DependencyGraph {
         Ok(())
     }
 
-    /// Validate the graph
+    /// Validates the dependency graph and returns a list of errors if any are found.
     ///
-    /// Returns a list of all issues
+    /// # Errors
+    /// See [`DependencyGraphErrors`] for possible errors during graph validation.
     pub fn check(&self) -> Result<(), DependencyGraphErrors> {
         let mut checked = HashSet::new();
         let mut errors = Vec::new();
@@ -94,7 +103,7 @@ impl DependencyGraph {
             // Skip other checks if already checked
             if !checked.insert(entry.info.type_id) {
                 return;
-            };
+            }
 
             dependency_chain.push(entry.info);
 
@@ -137,25 +146,28 @@ pub enum DependencyGraphError {
         dependency: TypeInfo,
         required_by: TypeInfo,
     },
-    #[error("A Circular Dependency exists between '{from}' and '{to}' through {chain:?} - Consider using `Lazy`")]
+    #[error(
+        "A Circular Dependency exists between '{from}' and '{to}' through {chain:?} - Consider using `Lazy`"
+    )]
     CircularDependency {
         from: TypeInfo,
         to: TypeInfo,
         chain: Vec<TypeInfo>,
     },
 }
+
+/// One or more errors in the dependency graph
+#[derive(Error, Debug, Clone)]
+pub struct DependencyGraphErrors {
+    pub errors: Vec<DependencyGraphError>,
+}
 impl std::fmt::Display for DependencyGraphErrors {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut display = Vec::new();
         display.push("The dependency graph had one or more errors:".to_string());
         for error in &self.errors {
-            display.push(format!("- {}", error));
+            display.push(format!("- {error}"));
         }
         f.write_str(&display.join("\n"))
     }
-}
-
-#[derive(Error, Debug, Clone)]
-pub struct DependencyGraphErrors {
-    pub errors: Vec<DependencyGraphError>,
 }

@@ -13,9 +13,6 @@ pub enum InjectError {
     /// Injection Handle channel was closed
     #[error("Handle was closed, did you try using it after Initialization?")]
     HandleClosed,
-    /// Generic error during Injection
-    #[error("Error during injection: {0}")]
-    Other(DynError),
 }
 impl From<mpsc::SendError> for InjectError {
     fn from(_: mpsc::SendError) -> Self {

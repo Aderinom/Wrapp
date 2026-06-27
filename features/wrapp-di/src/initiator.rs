@@ -1,12 +1,13 @@
 use std::{
     any::TypeId,
     collections::{HashMap, HashSet},
+    fmt::Display,
     sync::Arc,
     thread::{self, sleep},
     time::Duration,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 use futures_channel::{mpsc, oneshot};
 
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
     types::{DynError, Instance, TypeInfo},
 };
 
-/// Initiates the DiContainer
+/// Initiates the `DiContainer`
 pub(crate) struct DiInitiator {
     request_rx: mpsc::Receiver<DiRequest>,
     request_tx: mpsc::Sender<DiRequest>,
@@ -27,16 +28,16 @@ pub(crate) struct DiInitiator {
 
     /// Waiters for instance results
     instance_waiters: HashMap<TypeId, Vec<DiResponseSender<Instance>>>,
-    /// Waiters for the final DiContainer
+    /// Waiters for the final `DiContainer`
     container_waiters: Vec<DiResponseSender<DiContainer>>,
 
     /// All produced instances - None = Type is known but disabled
     instances: HashMap<TypeId, (TypeInfo, Option<Instance>)>,
 }
 impl DiInitiator {
-    pub(crate) fn new() -> DiInitiator {
+    pub(crate) fn new() -> Self {
         let (injection_request_sender, injection_request_receiver) = mpsc::channel(10);
-        DiInitiator {
+        Self {
             request_rx: injection_request_receiver,
             request_tx: injection_request_sender,
             all_registered_type_ids: HashSet::new(),
@@ -59,11 +60,13 @@ impl DiInitiator {
                 sleep(timeout);
                 let _ = timeout_tx.send(());
             });
-        };
+        }
 
         // Build and check Graph
-        let graph = DependencyGraph::new(&blueprint).map_err(|error| DependencyGraphErrors {
-            errors: vec![error],
+        let graph = DependencyGraph::new(&blueprint).map_err(|error| {
+            DependencyGraphErrors {
+                errors: vec![error],
+            }
         })?;
 
         graph.check()?;
@@ -73,7 +76,7 @@ impl DiInitiator {
             // On fail - inform all waiters
             let msg = Err(e.clone().into());
             for (_, waiters) in self.instance_waiters {
-                for waiter in waiters.into_iter() {
+                for waiter in waiters {
                     let _ = waiter.send(msg.clone());
                 }
             }
@@ -86,7 +89,30 @@ impl DiInitiator {
             return Err(e);
         }
 
-        tracing::debug!("All");
+        tracing::debug!(
+            "All factories finished, all injection requests handled, final instance count: {}",
+            self.instances.len()
+        );
+        #[cfg(debug_assertions)]
+        {
+            for (info, instance) in self.instances.values() {
+                let status = if instance.is_some() {
+                    ""
+                } else {
+                    "[disabled] "
+                };
+                tracing::debug!(" - {}{}", status, info.type_name,);
+            }
+        }
+
+        debug_assert!(
+            self.instance_waiters.is_empty(),
+            "Not all instance waiters were satisfied"
+        );
+        debug_assert!(
+            self.container_waiters.is_empty(),
+            "Not all container waiters were satisfied"
+        );
 
         let container = DiContainer::new(self.instances, graph);
         for waiter in self.container_waiters {
@@ -115,7 +141,7 @@ impl DiInitiator {
 
         // Add all pre build instances to the results
 
-        for (info, instance) in registered_instances.into_iter() {
+        for (info, instance) in registered_instances {
             self.all_registered_type_ids.insert(info.type_id);
             self.instances.insert(info.type_id, (info, Some(instance)));
         }
@@ -134,20 +160,16 @@ impl DiInitiator {
                 let supply_info = factory.supplies();
                 let result = async {
                     // Check if the factory is enabled
-                    match Box::into_pin(factory.is_enabled(handle.clone())).await? {
-                        true => {
-                            tracing::debug!("Factory for {} is enabled", supply_info.type_name)
-                        }
-                        false => {
-                            tracing::debug!("Factory for {} is disabled", supply_info.type_name);
-                            return Ok(None);
-                        }
+                    if Box::into_pin(factory.is_enabled(handle.clone())).await? {
+                        tracing::debug!("Factory for {} is enabled", supply_info.type_name);
+                    } else {
+                        tracing::debug!("Factory for {} is disabled", supply_info.type_name);
+                        return Ok(None);
                     }
 
                     // Construct factory
                     let instance = Box::into_pin(factory.construct(handle.clone())).await?;
 
-                    tracing::debug!("Constructed instance of {}", instance.info.type_name);
                     Ok::<_, DynError>(Some(instance))
                 }
                 .await;
@@ -159,13 +181,14 @@ impl DiInitiator {
         }
 
         // Start handling injection requests and wait for all factories to finish
-        // let pin_set = pin!(set);
         let factory_count = factory_futures.len();
 
         loop {
             let factories_left = factory_futures.len();
-            tracing::debug!(
-                "Waiting for factories to finish [{factories_left} of {factory_count} complete]"
+            let waiters = self.instance_waiters.len();
+            let container_waiters = self.container_waiters.len();
+            tracing::trace!(
+                "Polling initiation [{factories_left} of {factory_count} in progress,  waiters: {waiters}, container waiters: {container_waiters}]"
             );
 
             futures::select! {
@@ -183,6 +206,32 @@ impl DiInitiator {
             }
         }
 
+        // Close the request channel and handle any remaining requests
+        self.request_rx.close();
+        loop {
+            tracing::trace!(
+                "Polling remaining injection requests [{} waiters, {} container waiters]",
+                self.instance_waiters.len(),
+                self.container_waiters.len(),
+            );
+            futures::select! {
+                request = self.request_rx.next() => {
+                    let Some(request) = request else {
+                        break;
+                    };
+                    self.handle_injection_request(request);
+
+                    assert!(self.instance_waiters.is_empty(),
+                        "Not all instance waiters were satisfied after all factories finished: {} waiters remain - this is a bug in the DI system",
+                        self.instance_waiters.len()
+                    );
+                }
+                _ = timeout => {
+                    return Err(InitError::Timeout)
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -193,18 +242,13 @@ impl DiInitiator {
         &mut self,
         result: Option<(TypeInfo, Result<Option<Instance>, DynError>)>,
     ) -> Result<bool, InitError> {
-        let (info, result) = match result {
-            Some(result) => result,
-            None => {
-                // If no more tasks are left, exit the loop
-                // all injection requests must now also be handled as nothing is left to be build
-                debug_assert!(
-                    self.instance_waiters.is_empty(),
-                    "Not all waiters were satisfied"
-                );
-                return Ok(true);
-            }
+        let Some((info, result)) = result else {
+            // A none result means all tasks are complete, we exit the loop
+            // all injection requests must now also be handled as nothing is left to be build
+            return Ok(true);
         };
+
+        tracing::debug!("Factory for {} finished", info.type_name);
 
         match result {
             Ok(instance) => {
@@ -217,7 +261,7 @@ impl DiInitiator {
                     error: Arc::new(err),
                 });
             }
-        };
+        }
 
         return Ok(false);
 
@@ -243,12 +287,13 @@ impl DiInitiator {
                 .into_iter()
                 .flat_map(Vec::into_iter)
             {
+                tracing::trace!("Informing waiter for {} with result", type_name);
                 let _ = waiter.send(message.clone());
             }
         }
     }
 
-    /// Get a handle to the DiInitiator
+    /// Get a handle to the `DiInitiator`
     ///
     /// The handle is only valid before and during Initiation.
     pub fn get_handle(&self) -> DiHandle {
@@ -260,6 +305,8 @@ impl DiInitiator {
 // Injection Request handlers
 impl DiInitiator {
     fn handle_injection_request(&mut self, request: DiRequest) {
+        tracing::trace!("Got injection request: {}", request);
+
         match request {
             DiRequest::Require {
                 type_info,
@@ -284,17 +331,22 @@ impl DiInitiator {
         }
 
         // Check if we already have a result
-        match self.instances.get(&info.type_id) {
-            Some((_, result)) => {
-                let _ = match result {
-                    Some(instance) => response_channel.send(Ok(instance.clone())),
-                    None => response_channel.send(Err(RequireError::TypeDisabled(info.type_name))),
-                };
-                return;
-            }
-            None => {} // No result yet
+        if let Some((_, result)) = self.instances.get(&info.type_id) {
+            tracing::trace!("Found result for {} - sending to waiter", info.type_name);
+            let response = match result {
+                Some(instance) => Ok(instance.clone()),
+                None => Err(RequireError::TypeDisabled(info.type_name)),
+            };
+
+            // Ignore error, as the receiver may have been dropped
+            let _ = response_channel.send(response);
+            return;
         }
 
+        tracing::trace!(
+            "No result found for {} - adding to waiters list",
+            info.type_name
+        );
         // Otherwise add the request to the waiters list
         self.instance_waiters
             .entry(info.type_id)
@@ -308,6 +360,7 @@ impl DiInitiator {
 }
 
 /// DI Handle for resolving dependencies and getting instances from the registry.
+///
 /// The DI Handle is only valid during instantiation of the Application.
 /// Afterwards the DI Container can be used directly for dependency injection.
 #[derive(Clone)]
@@ -315,6 +368,10 @@ pub struct DiHandle {
     pub request_sender: mpsc::Sender<DiRequest>,
 }
 impl DiHandle {
+    /// Resolves a dependency of type `T` using the DI Handle.
+    ///
+    /// # Errors
+    /// See [`InjectError`] for possible errors during resolution.
     pub async fn resolve<T: Resolver>(&mut self) -> Result<T, InjectError> {
         T::resolve(self).await
     }
@@ -323,15 +380,27 @@ impl DiHandle {
 pub type DiResponseSender<For> = oneshot::Sender<Result<For, RequireError>>;
 pub type DiResponseReceiver<For> = oneshot::Receiver<Result<For, RequireError>>;
 
-/// Requests between [DiHandle] and [DiInitiator]
+/// Requests between [`DiHandle`] and `DiInitiator`
 pub enum DiRequest {
     /// Requires an instance of a specific type
     Require {
         type_info: TypeInfo,
         response_channel: DiResponseSender<Instance>,
     },
-    /// Requires a reference to the [DiContainer] once it has been build
+    /// Requires a reference to the [`DiContainer`] once it has been built
     RequireApp {
         response_channel: DiResponseSender<DiContainer>,
     },
+}
+impl Display for DiRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Require { type_info, .. } => {
+                write!(f, "Require({})", type_info.type_name)
+            }
+            Self::RequireApp { .. } => {
+                write!(f, "RequireApp")
+            }
+        }
+    }
 }

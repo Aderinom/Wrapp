@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+     - main
+     - dev
+  pull_request:
+  
+# Only keep the latest run per branch/PR to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust-all:
+    name: Rust (fmt, clippy, test, doc, shear)
+    runs-on: ubuntu-latest
+    env:
+      # Cache compilation output between runs via sccache.
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      # Starts the sccache server used by RUSTC_WRAPPER above.
+      - name: Start sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      # Runs every default workflow in a single step
+      - name: Run Rust workflows
+        uses: aderinom/rust-all-action@v1
+        with:
+          run: fmt,clippy,test,doc,shear,deny
+          flow-fmt-toolchain: nightly

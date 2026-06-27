@@ -1,0 +1,9 @@
+{
+  "cSpell.words": [
+    "oneshot",
+    "wrapp"
+  ],
+  "rust-analyzer.rustfmt.extraArgs": [
+    "+nightly"
+  ]
+}

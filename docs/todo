@@ -1,0 +1,18 @@
+[~] Wrapp
+  [~] DI
+    [x] Implementation
+      [ ] Rework: Error handling and Lazy 
+          Possibly change it so that instead of returning the error to the requestor, DI just fails, this simplifies error handling
+          Furthermore Lazy should be looked at again, it's awkward to use.
+    [] Proc Macro
+  
+  [x] Config
+    [x] Implement Config Provider
+    [x] Implement Injector
+
+  [] Strategies
+    [] Figure out how to pass strategies
+    [] Axum-Utoipa or Actix-Utoipa
+
+  [] Routing
+    [] See if we could reuse something existing - maybe Tower?

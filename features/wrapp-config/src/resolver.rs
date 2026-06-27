@@ -45,7 +45,6 @@ use crate::provider::ConfigProvider;
 ///         config.enabled
 ///     }
 /// }
-///
 /// ```
 pub struct Config<T> {
     inner: Arc<T>,
@@ -58,10 +57,12 @@ impl<T> Deref for Config<T> {
     }
 }
 impl<T> Config<T> {
+    #[must_use]
     pub fn inner(&self) -> Arc<T> {
         self.inner.clone()
     }
 
+    #[must_use]
     pub fn into_inner(self) -> Arc<T> {
         self.inner
     }
@@ -79,12 +80,12 @@ impl<T: Send + Sync + 'static> Resolver for Config<T> {
             .config()
             .ok_or_else(|| InjectError::RequireError(RequireError::TypeMissing(config_name)))?;
 
-        Ok(Config { inner: config })
+        Ok(Self { inner: config })
     }
 
     fn dependency_info() -> DependencyInfo {
         DependencyInfo {
-            type_info: TypeInfo::of::<Config<T>>(),
+            type_info: TypeInfo::of::<Self>(),
             optional: false,
             lazy: false,
         }

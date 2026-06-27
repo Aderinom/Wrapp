@@ -6,20 +6,22 @@ use crate::{
 };
 
 /// A Factory providing instances of a given type
-pub trait InstanceFactory: Send + Sync {
+pub trait InstanceFactory: Send {
     type Provides: Injectable;
 
     /// Returns the typeinfo about the factory's provided type
+    #[must_use]
     fn supplies() -> TypeInfo {
         TypeInfo::of::<Self::Provides>()
     }
 
     /// Returns a list of dependencies the factory requires to supply it's type
-    fn get_dependencies() -> Vec<DependencyInfo>;
+    fn dependencies() -> Vec<DependencyInfo>;
 
     /// Constructs a new instance of the factory's provided type
     ///
-    /// Returns the constructed instance, or an error if either Dependencies are not satisfied or the Instantiation failed
+    /// Returns the constructed instance, or an error if either Dependencies are not satisfied or
+    /// the Instantiation failed
     fn construct(
         &mut self,
         di: DiHandle,
@@ -36,7 +38,7 @@ pub trait InstanceFactory: Send + Sync {
 }
 
 /// Wrapper Trait for factories, providing instances of Any
-pub trait DynFactory {
+pub trait DynFactory: Send {
     fn supplies(&self) -> TypeInfo;
 
     /// Returns a list of dependencies for the factory
@@ -61,7 +63,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
     }
 
     fn dependencies(&self) -> Vec<DependencyInfo> {
-        SpecificFactory::get_dependencies()
+        SpecificFactory::dependencies()
     }
 
     fn construct(
@@ -73,7 +75,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
             SpecificFactory::construct(self, di)
                 .await
                 .map(Instance::new)
-                .map_err(|e| e.into())
+                .map_err(std::convert::Into::into)
         };
 
         Box::new(construction_fut)
@@ -87,7 +89,7 @@ impl<T: Injectable, SpecificFactory: InstanceFactory<Provides = T>> DynFactory f
             // Forward the call to the specific implementation
             SpecificFactory::is_enabled(self, di)
                 .await
-                .map_err(|e| e.into())
+                .map_err(std::convert::Into::into)
         };
 
         Box::new(future)

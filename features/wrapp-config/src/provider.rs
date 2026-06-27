@@ -8,7 +8,7 @@ use std::{
 
 use wrapp_di::types::TypeInfo;
 
-use crate::errors::{RegisterConfigError};
+use crate::errors::RegisterConfigError;
 
 /// A provider to register all configs.
 ///
@@ -20,6 +20,7 @@ pub struct ConfigProvider {
 
 impl ConfigProvider {
     /// Initializes an empty Config Provider
+    #[must_use]
     pub fn new() -> Self {
         Self {
             configs: HashMap::new(),
@@ -30,21 +31,28 @@ impl ConfigProvider {
     pub fn config<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         let type_id = TypeId::of::<T>();
 
-        let config = self.configs
-            .get(&type_id)?;
+        let config = self.configs.get(&type_id)?;
 
-        match config.clone().downcast::<T>() {
-            Ok(config) => Some(config),
-            Err(_) => {
-                debug_assert!(false, "Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
-                tracing::error!("Config Provider contained invalid type in slot for type: {:?}", TypeInfo::of::<T>());
-                None
-            },
+        if let Ok(config) = config.clone().downcast::<T>() {
+            Some(config)
+        } else {
+            debug_assert!(
+                false,
+                "Config Provider contained invalid type in slot for type: {:?}",
+                TypeInfo::of::<T>()
+            );
+            tracing::error!(
+                "Config Provider contained invalid type in slot for type: {:?}",
+                TypeInfo::of::<T>()
+            );
+            None
         }
-
     }
 
     /// Add a config to the registry.
+    ///
+    /// # Errors
+    /// - Fails if a config of the same type has already been registered.
     pub fn add_config<T: Send + Sync + 'static>(
         &mut self,
         config: T,
