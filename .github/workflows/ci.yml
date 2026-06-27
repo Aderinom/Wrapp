@@ -35,6 +35,5 @@ jobs:
       - name: Run Rust workflows
         uses: aderinom/rust-all-action@v1
         with:
-          # 'all-default' = test, clippy, fmt, doc, shear. 
-          run: fmt, clippy, test, doc, shear, deny
+          run: fmt,clippy,test,doc,shear,deny
           flow-fmt-toolchain: nightly
