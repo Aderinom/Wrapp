@@ -16,7 +16,6 @@ permissions:
   contents: read
 
 jobs:
-  rust-fmt:
   rust-all:
     name: Rust (fmt, clippy, test, doc, shear)
     runs-on: ubuntu-latest
